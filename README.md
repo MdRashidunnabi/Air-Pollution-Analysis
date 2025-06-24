@@ -62,14 +62,21 @@ git clone https://github.com/MdRashidunnabi/Air-Pollution-Analysis.git
 cd Air-Pollution-Analysis
 ```
 
-2. **Install dependencies:**
+2. **Create virtual environment and install dependencies:**
 ```bash
+python3 -m venv air_env
+source air_env/bin/activate
 pip install -r requirements.txt
 ```
 
 3. **Run the analysis:**
 ```bash
 python comprehensive_air_pollution_analysis.py
+```
+
+**Alternative (if you get permission errors):**
+```bash
+pip install -r requirements.txt --break-system-packages
 ```
 
 ## 📋 Usage
