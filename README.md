@@ -79,6 +79,78 @@ python comprehensive_air_pollution_analysis.py
 pip install -r requirements.txt --break-system-packages
 ```
 
+### 📱 **Google Colab Instructions**
+
+1. **Open Google Colab**: Go to [colab.research.google.com](https://colab.research.google.com)
+
+2. **Clone the repository:**
+```python
+!git clone https://github.com/MdRashidunnabi/Air-Pollution-Analysis.git
+%cd Air-Pollution-Analysis
+```
+
+3. **Install requirements:**
+```python
+!pip install -r requirements.txt
+```
+
+4. **Run the analysis:**
+```python
+!python comprehensive_air_pollution_analysis.py
+```
+
+5. **View generated files:**
+```python
+# List generated visualizations
+!ls -la visualization_results/
+
+# List trained models
+!ls -la trained_models/
+
+# View tables
+import pandas as pd
+pd.read_csv('experimental_results_tables/Table4_Model_Performance_Metrics.csv')
+```
+
+### 📓 **Jupyter Notebook Instructions**
+
+1. **Open terminal in Jupyter and clone:**
+```bash
+git clone https://github.com/MdRashidunnabi/Air-Pollution-Analysis.git
+cd Air-Pollution-Analysis
+pip install -r requirements.txt
+```
+
+2. **Or run directly in notebook cells:**
+```python
+# Cell 1: Clone repository
+import os
+os.system('git clone https://github.com/MdRashidunnabi/Air-Pollution-Analysis.git')
+os.chdir('Air-Pollution-Analysis')
+
+# Cell 2: Install requirements
+os.system('pip install -r requirements.txt')
+
+# Cell 3: Run analysis
+exec(open('comprehensive_air_pollution_analysis.py').read())
+```
+
+3. **Interactive notebook usage:**
+```python
+# Import the main functions (after running the script once)
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load results
+results = pd.read_csv('experimental_results_tables/Table4_Model_Performance_Metrics.csv')
+print("Model Performance:")
+print(results.head())
+
+# Display specific visualizations
+from IPython.display import Image, display
+display(Image('visualization_results/best_model_extra_trees/Figure_3_Feature_Importance_Extra_Trees.png'))
+```
+
 ## 📋 Usage
 
 ### Automatic Mode
