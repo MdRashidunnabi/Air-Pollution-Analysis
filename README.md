@@ -227,9 +227,7 @@ Perfect for:
 5. Push to branch (`git push origin feature/improvement`)
 6. Create a Pull Request
 
-## 📜 License
 
-This project is open source and available under the [MIT License](LICENSE).
 
 ## 👨‍💻 Author
 
