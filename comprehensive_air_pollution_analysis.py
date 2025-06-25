@@ -151,7 +151,7 @@ def create_all_models():
         'Lasso': Lasso(random_state=RANDOM_STATE),
         'Ridge': Ridge(random_state=RANDOM_STATE),
         'ElasticNet': ElasticNet(random_state=RANDOM_STATE),
-        'CatBoost': CatBoostRegressor(verbose=False, random_state=RANDOM_STATE),
+        'CatBoost': CatBoostRegressor(verbose=False, random_state=RANDOM_STATE, train_dir=None, allow_writing_files=False),
         'LightGBM': LGBMRegressor(random_state=RANDOM_STATE, verbose=-1)
     }
     
@@ -583,8 +583,8 @@ def figure_2_negative_no2_analysis(df, model_name, output_dir):
         print("No negative NO2 values found in the dataset.")
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.text(0.5, 0.5, 'No Negative NO2 Values Found\nin Current Dataset', 
-                ha='center', va='center', fontsize=16, fontweight='bold')
-        ax.set_title('Figure 2: Negative NO2 Analysis', fontsize=14)
+                ha='center', va='center', fontsize=24, fontweight='bold')
+        ax.set_title('Figure 2: Negative NO2 Analysis', fontsize=22, fontweight='bold')
         plt.savefig(f'{output_dir}/Figure_2_Negative_NO2_Analysis_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.close()
         return
@@ -595,9 +595,14 @@ def figure_2_negative_no2_analysis(df, model_name, output_dir):
     
     # Time series plot
     ax1.plot(negative_NO2.index, negative_NO2['NO2'], 'ro-', markersize=3, alpha=0.7)
-    ax1.set_title('Time Series Plot of Negative NO2 Values', fontsize=16, fontweight='bold')
-    ax1.set_xlabel('Index', fontsize=14, fontweight='bold')
-    ax1.set_ylabel('NO2 Concentration (µg/m³)', fontsize=14, fontweight='bold')
+    ax1.set_title('Time Series Plot of Negative NO2 Values', fontsize=20, fontweight='bold')
+    ax1.set_xlabel('Index', fontsize=18, fontweight='bold')
+    ax1.set_ylabel('NO2 Concentration (µg/m³)', fontsize=18, fontweight='bold')
+    ax1.tick_params(axis='both', which='major', labelsize=16)
+    for label in ax1.get_xticklabels():
+        label.set_fontweight('bold')
+    for label in ax1.get_yticklabels():
+        label.set_fontweight('bold')
     
     # KDE analysis
     if len(negative_NO2_values) > 1:
@@ -618,10 +623,17 @@ def figure_2_negative_no2_analysis(df, model_name, output_dir):
         ax2.fill_between(x_range, 0, density, where=(x_range <= threshold), alpha=0.5, color='red')
         ax2.axvline(x=threshold, color='red', linestyle='--', linewidth=2, 
                    label=f'Threshold (5% quantile): {threshold:.2f}')
-        ax2.set_xlabel('NO2 Concentration (µg/m³)', fontsize=14, fontweight='bold')
-        ax2.set_ylabel('Density', fontsize=14, fontweight='bold')
-        ax2.set_title('KDE of Negative NO2 Values', fontsize=16, fontweight='bold')
-        ax2.legend(fontsize=12)
+        ax2.set_xlabel('NO2 Concentration (µg/m³)', fontsize=18, fontweight='bold')
+        ax2.set_ylabel('Density', fontsize=18, fontweight='bold')
+        ax2.set_title('KDE of Negative NO2 Values', fontsize=20, fontweight='bold')
+        ax2.tick_params(axis='both', which='major', labelsize=16)
+        for label in ax2.get_xticklabels():
+            label.set_fontweight('bold')
+        for label in ax2.get_yticklabels():
+            label.set_fontweight('bold')
+        legend = ax2.legend(fontsize=16)
+        for text in legend.get_texts():
+            text.set_fontweight('bold')
     
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_2_Negative_NO2_Analysis_{model_name}.png', dpi=300, bbox_inches='tight')
@@ -645,22 +657,31 @@ def figure_3_feature_importance(model, feature_names, model_name, output_dir):
         title = 'Visualization of Feature Importance in the Extra Trees Regressor\nfor Predicting Atmospheric NO2 Concentrations'
     else:
         color = 'r'
-        title = 'Feature importances'
+        title = 'Feature Importance Analysis'
     
     bars = plt.bar(range(len(feature_names)), importances[sort_indices], 
-                   color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
+                   color=color, alpha=0.8, edgecolor='black', linewidth=2)
     
-    plt.title(title, fontsize=16, fontweight='bold', pad=20)
-    plt.xlabel('Features', fontsize=14, fontweight='bold')
-    plt.ylabel('Importance Score', fontsize=14, fontweight='bold')
+    plt.title(title, fontsize=22, fontweight='bold', pad=25)
+    plt.xlabel('Features', fontsize=18, fontweight='bold')
+    plt.ylabel('Importance Score', fontsize=18, fontweight='bold')
+    
+    # Set x-tick labels with bigger, bold fonts
     plt.xticks(range(len(feature_names)), [feature_names[i] for i in sort_indices], 
-               rotation=45, ha='right', fontsize=12, fontweight='bold')
+               rotation=45, ha='right', fontsize=16, fontweight='bold')
     
-    if 'Extra' in model_name:
-        for i, bar in enumerate(bars):
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2., height + 0.001,
-                    f'{height:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    # Set y-tick labels with bigger, bold fonts
+    plt.yticks(fontsize=16, fontweight='bold')
+    
+    # Add value labels on bars
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.001,
+                f'{height:.3f}', ha='center', va='bottom', fontsize=14, fontweight='bold')
+    
+    # Add grid for better readability
+    plt.grid(True, alpha=0.3, axis='y')
+    
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_3_Feature_Importance_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -669,10 +690,23 @@ def figure_4_environmental_histograms(df, model_name, output_dir):
     """Figure 4: Histograms of Environmental Parameters."""
     print(f"Generating Figure 4: Environmental Parameter Histograms ({model_name})...")
     
-    # Select key environmental parameters
+    # Select key environmental parameters with proper units
     cols = ['NO2', 'temp', 'rhum', 'msl', 'wdsp', 'dewpt', 'clamt', 'ind', 'Hour']
     colors = ["steelblue", "forestgreen", "crimson", "darkorange", "purple", 
               "brown", "pink", "gray", "olive"]
+    
+    # Define proper axis labels with units
+    axis_labels = {
+        'NO2': 'NO2 Concentration (µg/m³)',
+        'temp': 'Temperature (°C)',
+        'rhum': 'Relative Humidity (%)',
+        'msl': 'Mean Sea Level Pressure (hPa)',
+        'wdsp': 'Wind Speed (km/h)',
+        'dewpt': 'Dew Point Temperature (°C)',
+        'clamt': 'Cloud Amount (oktas)',
+        'ind': 'Index Value',
+        'Hour': 'Hour of Day'
+    }
     
     fig, axes = plt.subplots(3, 3, figsize=(15, 12))
     axes = axes.ravel()
@@ -680,7 +714,7 @@ def figure_4_environmental_histograms(df, model_name, output_dir):
     for i, (col, color) in enumerate(zip(cols, colors)):
         if col in df.columns:
             # Create histogram with density
-            axes[i].hist(df[col], bins=30, density=True, alpha=0.7, color=color, edgecolor='black')
+            axes[i].hist(df[col], bins=30, density=True, alpha=0.7, color=color, edgecolor='black', linewidth=1.5)
             
             # Add KDE curve
             try:
@@ -688,21 +722,39 @@ def figure_4_environmental_histograms(df, model_name, output_dir):
                 if len(data_clean) > 1:
                     kde = gaussian_kde(data_clean)
                     x_range = np.linspace(data_clean.min(), data_clean.max(), 100)
-                    axes[i].plot(x_range, kde(x_range), 'black', linewidth=2)
+                    axes[i].plot(x_range, kde(x_range), 'black', linewidth=3)
             except:
                 pass
                 
             # Add mean line
             mean_val = df[col].mean()
-            axes[i].axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.2f}')
+            axes[i].axvline(mean_val, color='red', linestyle='--', linewidth=3, label=f'Mean: {mean_val:.2f}')
             
-            axes[i].set_title(f'{col}', fontsize=14, fontweight='bold', color='navy')
-            axes[i].set_xlabel('')
-            axes[i].legend(loc='best', fontsize=11)
+            # Set title with bigger, bold font
+            axes[i].set_title(f'{col}', fontsize=20, fontweight='bold', color='navy', pad=15)
+            
+            # Set proper axis labels with bigger, bold fonts
+            axes[i].set_xlabel(axis_labels[col], fontsize=16, fontweight='bold')
+            axes[i].set_ylabel('Density', fontsize=16, fontweight='bold')
+            
+            # Make tick labels bigger and bold
+            axes[i].tick_params(axis='both', which='major', labelsize=14)
+            for label in axes[i].get_xticklabels():
+                label.set_fontweight('bold')
+            for label in axes[i].get_yticklabels():
+                label.set_fontweight('bold')
+            
+            # Legend with bigger font
+            legend = axes[i].legend(loc='best', fontsize=14)
+            for text in legend.get_texts():
+                text.set_fontweight('bold')
             axes[i].set_facecolor('white')
+            
+            # Add grid for better readability
+            axes[i].grid(True, alpha=0.3)
     
     plt.suptitle('Histograms of Environmental Parameters\nShowing the Distributional Characteristics of Key Variables in the Dataset', 
-                 fontsize=16, fontweight='bold')
+                 fontsize=24, fontweight='bold', y=0.98)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_4_Environmental_Histograms_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -721,10 +773,20 @@ def figure_5_correlation_heatmap(df, model_name, output_dir):
     
     sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', vmin=-1, vmax=1,
                 center=0, square=True, linewidths=0.5, cbar_kws={"shrink": .8},
-                fmt='.2f', annot_kws={'size': 9})
+                fmt='.2f', annot_kws={'size': 14, 'weight': 'bold'})
+    
+    # Make axis labels bigger and bold
+    plt.xticks(fontsize=16, fontweight='bold', rotation=45)
+    plt.yticks(fontsize=16, fontweight='bold', rotation=0)
+    
+    # Make colorbar labels bigger and bold
+    cbar = plt.gca().collections[0].colorbar
+    cbar.ax.tick_params(labelsize=14)
+    for label in cbar.ax.get_yticklabels():
+        label.set_fontweight('bold')
     
     plt.title('Correlation Matrices and Heatmaps\nShowing the Relationships Between Atmospheric and Temporal Parameters', 
-              fontsize=16, fontweight='bold', pad=20)
+              fontsize=22, fontweight='bold', pad=25)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_5_Correlation_Heatmap_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -775,8 +837,8 @@ def figure_6_pca_analysis(df, model_name, output_dir):
         # Place label with background box to ensure readability
         ax.text(label_x, label_y, var, 
                color='darkgreen', ha='center', va='center', 
-               fontweight='bold', fontsize=11,
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+               fontweight='bold', fontsize=18,
+               bbox=dict(boxstyle='round,pad=0.4', facecolor='white', 
                         edgecolor='darkgreen', alpha=0.8))
     
     # Set equal aspect ratio for proper circle
@@ -786,11 +848,18 @@ def figure_6_pca_analysis(df, model_name, output_dir):
     ax.set_xlim([-1.4, 1.4])
     ax.set_ylim([-1.4, 1.4])
     ax.set_xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]:.1%} variance)', 
-                  fontsize=14, fontweight='bold')
+                  fontsize=20, fontweight='bold')
     ax.set_ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]:.1%} variance)', 
-                  fontsize=14, fontweight='bold')
+                  fontsize=20, fontweight='bold')
     ax.set_title('PCA Loading Analysis\nShowing the Contribution of Meteorological Variables to the Principal Components', 
-                fontsize=16, fontweight='bold', pad=20)
+                fontsize=24, fontweight='bold', pad=20)
+    
+    # Make tick labels bigger and bold
+    ax.tick_params(axis='both', which='major', labelsize=18)
+    for label in ax.get_xticklabels():
+        label.set_fontweight('bold')
+    for label in ax.get_yticklabels():
+        label.set_fontweight('bold')
     
     # Add grid for better readability
     ax.grid(True, alpha=0.3)
@@ -807,7 +876,7 @@ def figure_6_pca_analysis(df, model_name, output_dir):
     # Add variance explanation text
     total_variance = pca.explained_variance_ratio_[0] + pca.explained_variance_ratio_[1]
     ax.text(0.02, 0.98, f'Total Variance Explained: {total_variance:.1%}', 
-            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            transform=ax.transAxes, fontsize=18, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.8),
             verticalalignment='top')
     
@@ -834,17 +903,27 @@ def figure_7_scatterplots(df, model_name, output_dir):
     
     for i, col in enumerate(columns):
         if col in df.columns:
-            axes[i].scatter(df['NO2'], df[col], alpha=0.5, s=3, color='blue')
-            axes[i].set_title(f'NO2 vs {col}', fontsize=14, fontweight='bold')
-            axes[i].set_xlabel('NO2 (µg/m³)', fontsize=12, fontweight='bold')
-            axes[i].set_ylabel(f'{col} ({feature_units.get(col, "unit")})', fontsize=12, fontweight='bold')
+            axes[i].scatter(df['NO2'], df[col], alpha=0.6, s=8, color='blue', edgecolors='darkblue', linewidth=0.3)
+            axes[i].set_title(f'NO2 vs {col}', fontsize=18, fontweight='bold', pad=15)
+            axes[i].set_xlabel('NO2 (µg/m³)', fontsize=16, fontweight='bold')
+            axes[i].set_ylabel(f'{col} ({feature_units.get(col, "unit")})', fontsize=16, fontweight='bold')
+            
+            # Make tick labels bigger and bold
+            axes[i].tick_params(axis='both', which='major', labelsize=14)
+            for label in axes[i].get_xticklabels():
+                label.set_fontweight('bold')
+            for label in axes[i].get_yticklabels():
+                label.set_fontweight('bold')
+            
+            # Add grid for better readability
+            axes[i].grid(True, alpha=0.3)
     
     # Remove unused subplots
     for j in range(i+1, len(axes)):
         fig.delaxes(axes[j])
     
     plt.suptitle('Scatterplot Analysis: NO2 vs Environmental Variables', 
-                 fontsize=16, fontweight='bold')
+                 fontsize=24, fontweight='bold', y=0.98)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_7_Scatterplots_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -856,29 +935,38 @@ def figure_8_actual_vs_predicted(y_test, y_pred_test, test_r2, train_r2, model_n
     plt.figure(figsize=(10, 8))
     
     # Create scatter plot
-    plt.scatter(y_test, y_pred_test, alpha=0.6, color='blue', s=20)
+    plt.scatter(y_test, y_pred_test, alpha=0.6, color='blue', s=30, edgecolors='darkblue', linewidth=0.5)
     
     # Perfect prediction line
     min_val = min(y_test.min(), y_pred_test.min())
     max_val = max(y_test.max(), y_pred_test.max())
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, 
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=3, 
              label='Perfect Prediction')
     
-    # Labels and title
-    plt.xlabel('Actual NO2 Concentration (µg/m³)', fontsize=14, fontweight='bold')
-    plt.ylabel('Predicted NO2 Concentration (µg/m³)', fontsize=14, fontweight='bold')
+    # Labels and title with bigger fonts
+    plt.xlabel('Actual NO2 Concentration (µg/m³)', fontsize=18, fontweight='bold')
+    plt.ylabel('Predicted NO2 Concentration (µg/m³)', fontsize=18, fontweight='bold')
     plt.title(f'Actual vs Predicted NO2 Concentrations - {model_name}', 
-              fontsize=16, fontweight='bold')
+              fontsize=20, fontweight='bold', pad=20)
     
-    # Add R² scores as text
+    # Make tick labels bigger and bold
+    plt.xticks(fontsize=16, fontweight='bold')
+    plt.yticks(fontsize=16, fontweight='bold')
+    
+    # Add R² scores as text with bigger fonts
     plt.text(0.05, 0.95, f'Test R² = {test_r2:.4f}', 
-             transform=plt.gca().transAxes, fontsize=13, fontweight='bold',
+             transform=plt.gca().transAxes, fontsize=16, fontweight='bold',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
     plt.text(0.05, 0.88, f'Train R² = {train_r2:.4f}', 
-             transform=plt.gca().transAxes, fontsize=13, fontweight='bold',
+             transform=plt.gca().transAxes, fontsize=16, fontweight='bold',
              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
     
-    plt.legend(fontsize=12)
+    # Add grid for better readability
+    plt.grid(True, alpha=0.3)
+    
+    legend = plt.legend(fontsize=16)
+    for text in legend.get_texts():
+        text.set_fontweight('bold')
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_8_Actual_vs_Predicted_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
@@ -899,7 +987,8 @@ def figure_9_temporal_patterns(df, model_name, output_dir):
     }
     
     for param in meteorological_params:
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        # MUCH WIDER and TALLER figure to prevent any overlapping
+        fig, axes = plt.subplots(1, 3, figsize=(30, 10))
         
         patterns = [
             (df_temp.index.hour, 'Hour of the day'),
@@ -912,24 +1001,108 @@ def figure_9_temporal_patterns(df, model_name, output_dir):
             
             # Plot NO2 on primary axis
             ax1 = axes[i]
-            ax1.plot(grouped_data.index, grouped_data['NO2'], 'b-', linewidth=2, color='blue', label='NO2')
-            ax1.set_ylabel(f'NO2 (µg/m³)', color='blue', fontsize=13, fontweight='bold')
-            ax1.tick_params(axis='y', labelcolor='blue', labelsize=11)
-            ax1.set_xlabel(title, fontsize=13, fontweight='bold')
+            ax1.plot(grouped_data.index, grouped_data['NO2'], linewidth=3, color='blue', label='NO2', marker='o', markersize=6)
+            ax1.set_ylabel(f'NO2 (µg/m³)', color='blue', fontsize=20, fontweight='bold')
+            ax1.tick_params(axis='y', labelcolor='blue', labelsize=16)
+            ax1.tick_params(axis='x', labelsize=16)
+            ax1.set_xlabel(title, fontsize=20, fontweight='bold')
             
             # Plot parameter on secondary axis
             ax2 = ax1.twinx()
-            ax2.plot(grouped_data.index, grouped_data[param], 'r-', linewidth=2, color='red', label=param)
-            ax2.set_ylabel(f'{param} ({units[param]})', color='red', fontsize=13, fontweight='bold')
-            ax2.tick_params(axis='y', labelcolor='red', labelsize=11)
+            ax2.plot(grouped_data.index, grouped_data[param], linewidth=3, color='red', label=param, marker='s', markersize=6)
+            ax2.set_ylabel(f'{param} ({units[param]})', color='red', fontsize=20, fontweight='bold')
+            ax2.tick_params(axis='y', labelcolor='red', labelsize=16)
             
-            ax1.set_title(f'{title} pattern of\nNO2 and {param}', fontsize=14, fontweight='bold')
+            # Make x-tick labels bold
+            for label in ax1.get_xticklabels():
+                label.set_fontweight('bold')
+            for label in ax1.get_yticklabels():
+                label.set_fontweight('bold')
+            for label in ax2.get_yticklabels():
+                label.set_fontweight('bold')
+            
+            ax1.set_title(f'{title} pattern of\nNO2 and {param}', fontsize=22, fontweight='bold', pad=20)
+            
+            # Add grids
+            ax1.grid(True, alpha=0.3)
         
-        plt.suptitle(f'Interplay of Climatic Parameters: A Symphony of Temperature Variations,\nAtmospheric Indicators, and Human Influence', 
-                     fontsize=16, fontweight='bold')
-        plt.tight_layout()
+        # Main title removed as requested
+        
+        # MAXIMUM spacing between subplots to prevent ANY overlapping
+        plt.subplots_adjust(left=0.06, bottom=0.12, right=0.94, top=0.75, wspace=0.6, hspace=0.4)
+        
         plt.savefig(f'{output_dir}/Figure_9_Temporal_Patterns_{param}_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.close()
+        
+        # CSV export disabled for Figure 9
+        # save_comprehensive_temporal_data(df_temp, param, units, model_name)
+
+def save_comprehensive_temporal_data(df_temp, param, units, model_name):
+    """Save ALL raw temporal pattern data in ONE comprehensive CSV file"""
+    
+    # Create a comprehensive dataset with all temporal information
+    comprehensive_data = df_temp.reset_index()
+    
+    # Add temporal pattern columns
+    comprehensive_data['Hour_of_Day'] = comprehensive_data['DateTime'].dt.hour
+    comprehensive_data['Day_of_Week'] = comprehensive_data['DateTime'].dt.dayofweek
+    comprehensive_data['Month'] = comprehensive_data['DateTime'].dt.month
+    comprehensive_data['Year'] = comprehensive_data['DateTime'].dt.year
+    comprehensive_data['Day_of_Month'] = comprehensive_data['DateTime'].dt.day
+    
+    # Add interpretive columns
+    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    comprehensive_data['Day_Name'] = comprehensive_data['Day_of_Week'].apply(lambda x: day_names[x] if x < 7 else 'Unknown')
+    
+    month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
+                  'July', 'August', 'September', 'October', 'November', 'December']
+    comprehensive_data['Month_Name'] = comprehensive_data['Month'].apply(lambda x: month_names[x] if 1 <= x <= 12 else 'Unknown')
+    
+    # Add season information
+    def get_season(month):
+        if month in [3, 4, 5]:
+            return 'Spring (Mar-May)'
+        elif month in [6, 7, 8]:
+            return 'Summer (Jun-Aug)'
+        elif month in [9, 10, 11]:
+            return 'Autumn (Sep-Nov)'
+        else:
+            return 'Winter (Dec-Feb)'
+    
+    comprehensive_data['Season'] = comprehensive_data['Month'].apply(get_season)
+    
+    # Add model and parameter information
+    comprehensive_data['Model'] = model_name
+    comprehensive_data['Parameter'] = param
+    comprehensive_data['Parameter_Unit'] = units[param]
+    
+    # Rename parameter column for clarity
+    if param in comprehensive_data.columns:
+        comprehensive_data[f'{param}_{units[param]}'] = comprehensive_data[param]
+    
+    # Select final columns for the CSV
+    final_columns = [
+        'DateTime', 'Year', 'Month', 'Month_Name', 'Day_of_Month', 
+        'Day_of_Week', 'Day_Name', 'Hour_of_Day', 'Season',
+        'NO2', f'{param}_{units[param]}', 'Model', 'Parameter', 'Parameter_Unit'
+    ]
+    
+    # Keep only existing columns
+    final_columns = [col for col in final_columns if col in comprehensive_data.columns]
+    comprehensive_final = comprehensive_data[final_columns]
+    
+    # Round numeric values
+    numeric_cols = ['NO2', f'{param}_{units[param]}']
+    for col in numeric_cols:
+        if col in comprehensive_final.columns:
+            comprehensive_final[col] = comprehensive_final[col].round(3)
+    
+    # Save to single CSV file
+    csv_filename = f'{TABLES_DIR}/Figure_9_Comprehensive_Temporal_Data_{param}_{model_name}.csv'
+    comprehensive_final.to_csv(csv_filename, index=False)
+    print(f"✓ Comprehensive temporal data saved: {csv_filename}")
+    print(f"  - Contains {len(comprehensive_final)} rows of raw data")
+    print(f"  - Columns: {', '.join(comprehensive_final.columns)}")
 
 def figure_10_wind_direction_analysis(df, model_name, output_dir):
     """Figure 10: Wind Direction Circular Analysis."""
@@ -959,13 +1132,140 @@ def figure_10_wind_direction_analysis(df, model_name, output_dir):
     ax.set_theta_direction(-1)
     
     # Plot mean direction arrow
-    ax.arrow(mean_direction, 0, 0, R, alpha=0.5, width=0.015,
-             edgecolor='black', facecolor='green', lw=1, zorder=5)
+    ax.arrow(mean_direction, 0, 0, R, alpha=0.7, width=0.02,
+             edgecolor='black', facecolor='green', lw=2, zorder=5)
     
-    ax.set_title('Wind Direction Circular Decomposition', fontsize=16, fontweight='bold', pad=20)
+    # Make tick labels bigger and bold
+    ax.tick_params(axis='both', which='major', labelsize=14)
+    for label in ax.get_xticklabels():
+        label.set_fontweight('bold')
+    for label in ax.get_yticklabels():
+        label.set_fontweight('bold')
+    
+    # Add directional labels with bigger fonts - positioned to avoid overlap
+    directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    angles = np.arange(0, 2*np.pi, np.pi/4)
+    for angle, direction in zip(angles, directions):
+        # Position labels further out to avoid overlap
+        ax.text(angle, ax.get_ylim()[1]*1.3, direction, 
+                ha='center', va='center', fontsize=14, fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
+    
+    # Add statistical information
+    ax.text(0.02, 0.98, f'Mean Direction: {mean_direction_deg:.1f}°\nResultant Length: {R:.3f}', 
+            transform=ax.transAxes, fontsize=14, fontweight='bold',
+            bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8),
+            verticalalignment='top')
+    
+    ax.set_title('Wind Direction Circular Decomposition', fontsize=20, fontweight='bold', pad=25)
     plt.tight_layout()
     plt.savefig(f'{output_dir}/Figure_10_Wind_Direction_Analysis_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
+    
+    # CSV export disabled for Figure 10
+    # save_comprehensive_wind_direction_data(df_wind, mean_direction_deg, R, model_name)
+
+def save_comprehensive_wind_direction_data(df_wind, mean_direction_deg, R, model_name):
+    """Save ALL raw wind direction data in ONE comprehensive CSV file"""
+    
+    # Create comprehensive wind direction dataset
+    comprehensive_wind_data = df_wind.reset_index()
+    
+    # Add wind direction analysis columns
+    def get_wind_direction_category(degrees):
+        if 337.5 <= degrees or degrees < 22.5:
+            return 'North'
+        elif 22.5 <= degrees < 67.5:
+            return 'Northeast'
+        elif 67.5 <= degrees < 112.5:
+            return 'East'
+        elif 112.5 <= degrees < 157.5:
+            return 'Southeast'
+        elif 157.5 <= degrees < 202.5:
+            return 'South'
+        elif 202.5 <= degrees < 247.5:
+            return 'Southwest'
+        elif 247.5 <= degrees < 292.5:
+            return 'West'
+        elif 292.5 <= degrees < 337.5:
+            return 'Northwest'
+        else:
+            return 'Unknown'
+    
+    # Bin directions into 8 sectors
+    def get_wind_direction_sector(degrees):
+        direction_bins = [0, 45, 90, 135, 180, 225, 270, 315, 360]
+        direction_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        for i, bin_edge in enumerate(direction_bins[1:]):
+            if degrees <= bin_edge:
+                return direction_labels[i]
+        return 'N'  # For 360 degrees
+    
+    # Add derived columns
+    comprehensive_wind_data['Wind_Direction_Category'] = comprehensive_wind_data['wddir'].apply(get_wind_direction_category)
+    comprehensive_wind_data['Wind_Direction_Sector'] = comprehensive_wind_data['wddir'].apply(get_wind_direction_sector)
+    
+    # Add summary statistics as columns (for reference)
+    comprehensive_wind_data['Dataset_Mean_Direction_Deg'] = round(mean_direction_deg, 2)
+    comprehensive_wind_data['Dataset_Resultant_Length'] = round(R, 4)
+    comprehensive_wind_data['Total_Observations'] = len(df_wind)
+    
+    # Add model information
+    comprehensive_wind_data['Model'] = model_name
+    
+    # Add temporal information if DateTime exists
+    if 'DateTime' in comprehensive_wind_data.columns:
+        comprehensive_wind_data['Hour'] = comprehensive_wind_data['DateTime'].dt.hour
+        comprehensive_wind_data['Day_of_Week'] = comprehensive_wind_data['DateTime'].dt.dayofweek
+        comprehensive_wind_data['Month'] = comprehensive_wind_data['DateTime'].dt.month
+    
+    # Select and order final columns
+    final_columns = ['DateTime', 'wddir', 'wdsp', 'NO2', 'Wind_Direction_Category', 'Wind_Direction_Sector',
+                    'Dataset_Mean_Direction_Deg', 'Dataset_Resultant_Length', 'Total_Observations', 'Model']
+    
+    # Add temporal columns if they exist
+    if 'Hour' in comprehensive_wind_data.columns:
+        final_columns.insert(-1, 'Hour')
+        final_columns.insert(-1, 'Day_of_Week') 
+        final_columns.insert(-1, 'Month')
+    
+    # Keep only existing columns
+    final_columns = [col for col in final_columns if col in comprehensive_wind_data.columns]
+    comprehensive_final = comprehensive_wind_data[final_columns]
+    
+    # Round numeric values
+    numeric_cols = ['wddir', 'wdsp', 'NO2']
+    for col in numeric_cols:
+        if col in comprehensive_final.columns:
+            comprehensive_final[col] = comprehensive_final[col].round(3)
+    
+    # Save to single comprehensive CSV file
+    csv_filename = f'{TABLES_DIR}/Figure_10_Comprehensive_Wind_Direction_Data_{model_name}.csv'
+    comprehensive_final.to_csv(csv_filename, index=False)
+    print(f"✓ Comprehensive wind direction data saved: {csv_filename}")
+    print(f"  - Contains {len(comprehensive_final)} rows of raw wind data")
+    print(f"  - Columns: {', '.join(comprehensive_final.columns)}")
+
+def get_wind_direction_category(degrees):
+    """Get wind direction category from degrees"""
+    if 337.5 <= degrees or degrees < 22.5:
+        return 'North'
+    elif 22.5 <= degrees < 67.5:
+        return 'Northeast'
+    elif 67.5 <= degrees < 112.5:
+        return 'East'
+    elif 112.5 <= degrees < 157.5:
+        return 'Southeast'
+    elif 157.5 <= degrees < 202.5:
+        return 'South'
+    elif 202.5 <= degrees < 247.5:
+        return 'Southwest'
+    elif 247.5 <= degrees < 292.5:
+        return 'West'
+    elif 292.5 <= degrees < 337.5:
+        return 'Northwest'
+    else:
+        return 'Unknown'
 
 def figure_11_seasonal_patterns(df, model_name, output_dir):
     """Figure 11: Seasonal Patterns Analysis."""
@@ -997,27 +1297,71 @@ def figure_11_seasonal_patterns(df, model_name, output_dir):
         seasonal_order = ['Spring (Mar-May)', 'Summer (Jun-Aug)', 'Autumn (Sep-Nov)', 'Winter (Dec-Feb)']
         seasonal_data = df.groupby('Season_Detailed').agg({param: 'mean', 'NO2': 'mean'}).reindex(seasonal_order)
         
-        # Plot NO2
-        ax.plot(seasonal_data.index, seasonal_data['NO2'], 'b-o', linewidth=2, markersize=8, label='NO2', color='blue')
-        ax.set_ylabel(f'NO2 (µg/m³)', color='blue', fontsize=13, fontweight='bold')
-        ax.tick_params(axis='y', labelcolor='blue', labelsize=11)
+        # Plot NO2 with bigger markers and lines
+        ax.plot(seasonal_data.index, seasonal_data['NO2'], 'b-o', linewidth=4, markersize=12, label='NO2', color='blue')
+        ax.set_ylabel(f'NO2 (µg/m³)', color='blue', fontsize=16, fontweight='bold')
+        ax.tick_params(axis='y', labelcolor='blue', labelsize=14)
+        ax.tick_params(axis='x', labelsize=14)
         
         # Plot meteorological parameter
         ax2 = ax.twinx()
-        ax2.plot(seasonal_data.index, seasonal_data[param], 'r-o', linewidth=2, markersize=8, label=param, color='red')
-        ax2.set_ylabel(f'{param} ({units[param]})', color='red', fontsize=13, fontweight='bold')
-        ax2.tick_params(axis='y', labelcolor='red', labelsize=11)
+        ax2.plot(seasonal_data.index, seasonal_data[param], 'r-s', linewidth=4, markersize=12, label=param, color='red')
+        ax2.set_ylabel(f'{param} ({units[param]})', color='red', fontsize=16, fontweight='bold')
+        ax2.tick_params(axis='y', labelcolor='red', labelsize=14)
         
-        ax.set_title(f'Seasonal pattern of NO2 (µg/m³) and {param} ({units[param]})', fontsize=14, fontweight='bold')
-        ax.set_xlabel('Season', fontsize=13, fontweight='bold')
+        # Make tick labels bold
+        for label in ax.get_xticklabels():
+            label.set_fontweight('bold')
+        for label in ax.get_yticklabels():
+            label.set_fontweight('bold')
+        for label in ax2.get_yticklabels():
+            label.set_fontweight('bold')
         
-        # Add legends
-        ax.legend(loc='upper left', fontsize=11)
-        ax2.legend(loc='upper right', fontsize=11)
+        ax.set_title(f'Seasonal pattern of NO2 (µg/m³) and {param} ({units[param]})', 
+                    fontsize=18, fontweight='bold', pad=20)
+        ax.set_xlabel('Season', fontsize=16, fontweight='bold')
+        
+        # Add legends with bigger fonts
+        legend1 = ax.legend(loc='upper left', fontsize=14)
+        legend2 = ax2.legend(loc='upper right', fontsize=14)
+        for text in legend1.get_texts():
+            text.set_fontweight('bold')
+        for text in legend2.get_texts():
+            text.set_fontweight('bold')
+        
+        # Add grids for better readability
+        ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
         plt.savefig(f'{output_dir}/Figure_11_Seasonal_Pattern_{param}_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.close()
+        
+        # CSV export disabled for Figure 11
+        # save_comprehensive_seasonal_data(df, seasonal_data, param, units, model_name)
+
+def save_seasonal_pattern_data(seasonal_data, param, units, model_name):
+    """Save seasonal pattern numeric data as CSV files"""
+    
+    # Reset index to make season a column
+    seasonal_csv_data = seasonal_data.reset_index()
+    
+    # Rename columns for clarity
+    seasonal_csv_data.columns = ['Season', f'{param}_Mean_{units[param]}', 'NO2_Mean_µg_per_m³']
+    
+    # Add additional information
+    seasonal_csv_data['Parameter'] = param
+    seasonal_csv_data['Model'] = model_name
+    seasonal_csv_data['Pattern_Type'] = 'Seasonal'
+    
+    # Round values for readability
+    numeric_cols = [f'{param}_Mean_{units[param]}', 'NO2_Mean_µg_per_m³']
+    for col in numeric_cols:
+        seasonal_csv_data[col] = seasonal_csv_data[col].round(3)
+    
+    # Save to CSV
+    csv_filename = f'{TABLES_DIR}/Figure_11_Seasonal_Data_{param}_{model_name}.csv'
+    seasonal_csv_data.to_csv(csv_filename, index=False)
+    print(f"✓ Seasonal data saved: {csv_filename}")
 
 def generate_visualizations_for_model(df, model, model_name, feature_names, y_test, y_pred_test, test_r2, train_r2, output_dir):
     """Generate ALL visualization figures for a specific model"""
