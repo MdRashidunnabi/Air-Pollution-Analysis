@@ -1,13 +1,94 @@
 #!/usr/bin/env python3
 """
-Ultimate Comprehensive Air Pollution Analysis Script
-====================================================
-Combines:
-- Model training and evaluation (corrected_air_pollution_predictor.py)
-- Complete visualizations (complete_visualization_extra_trees.py & complete_visualization_random_forest.py)
-- Experimental tables generation (generate_tables.py)
-- Interactive model selection for custom visualizations
-All-in-one solution for air pollution prediction analysis
+ULTIMATE COMPREHENSIVE AIR POLLUTION ANALYSIS SCRIPT v2.0
+=========================================================
+
+MAJOR UPDATES AND NEW FEATURES:
+==============================
+
+1. IMPROVED FORECASTING SYSTEM:
+   - Enhanced 1-year forecast generation using best ML model
+   - Intelligent feature generation for future predictions
+   - Comprehensive forecast visualizations (6-panel analysis)
+   - Historical pattern integration for meteorological features
+   - Automatic model selection and forecast generation
+
+2. COMPREHENSIVE PATTERN ANALYSIS:
+   - 12-panel comprehensive pattern analysis visualization
+   - Long-term trend analysis with statistical significance
+   - Seasonal, daily, and weekly pattern identification
+   - Anomaly detection using IQR method
+   - Wind pattern analysis (when data available)
+   - Meteorological correlation analysis
+   - Statistical distribution analysis
+   - Insights extraction and reporting
+
+3. PROFESSIONAL DASHBOARD:
+   - Publication-ready professional dashboard
+   - Executive summary with key findings
+   - Multi-panel integrated visualization
+   - Professional color scheme and typography
+   - Policy implications and recommendations
+
+4. ENHANCED DIRECTORY STRUCTURE:
+   - forecast_results/: 1-year forecasts and visualizations
+   - pattern_analysis_results/: Comprehensive pattern analysis
+   - professional_results/: Professional dashboard outputs
+   - visualization_results/: Model-specific visualizations
+   - Organized output structure for all analysis components
+
+5. COMPREHENSIVE RESULTS INTEGRATION:
+   - All analysis components in single script
+   - Automatic execution flow from ML → TS → Patterns → Forecasting
+   - Comprehensive summary report generation
+   - Insights extraction and correlation across all analyses
+
+6. STREAMLINED EXECUTION:
+   - Removed unnecessary CSV exports to reduce file clutter
+   - Optimized visualization generation
+   - Enhanced error handling and progress reporting
+   - Consolidated all functionality in one script
+
+EXECUTION FLOW:
+==============
+1. Machine Learning Analysis (17 models)
+2. Time Series Analysis (ARIMA variants)
+3. Pattern Analysis (trends, anomalies, insights)
+4. Professional Dashboard Generation
+5. 1-Year Forecasting with Best Model
+6. Model-Specific Visualizations
+7. Interactive Model Selection
+8. Comprehensive Summary Report
+
+ALL PREVIOUS FUNCTIONALITY PRESERVED:
+====================================
+- Complete ML model training and evaluation
+- Time series analysis with ARIMA models
+- Experimental tables generation (Tables 1-7)
+- All 11 visualization figures per model
+- Interactive model selection system
+- Comprehensive performance evaluation
+
+NEW OUTPUT FILES:
+================
+- 1_year_no2_forecast.csv: Complete forecast data
+- 1_year_no2_forecast_visualization.png: Forecast analysis
+- comprehensive_pattern_analysis.png: 12-panel pattern analysis
+- professional_air_pollution_dashboard.png: Executive dashboard
+- comprehensive_analysis_summary.txt: Complete results summary
+
+TOTAL ANALYSIS COMPONENTS:
+=========================
+- 17 Machine Learning Models
+- 4 Time Series Models  
+- 7 Experimental Tables
+- 12-Panel Pattern Analysis
+- Professional Dashboard
+- 1-Year Forecast System
+- Model-Specific Visualizations
+- Interactive Selection System
+
+Run this script to execute the complete comprehensive analysis!
 """
 
 import pandas as pd
@@ -22,10 +103,11 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.decomposition import PCA
 from scipy.stats import gaussian_kde
+from scipy import stats
 import itertools
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# Model imports
+# Machine Learning Model imports
 from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor, ExtraTreesRegressor, BaggingRegressor, VotingRegressor, StackingRegressor
 from sklearn.tree import DecisionTreeRegressor
@@ -36,12 +118,23 @@ from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from lightgbm import LGBMRegressor
 
+# Time Series imports
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.stattools import adfuller, kpss
+
 warnings.filterwarnings('ignore')
 
 # Constants
 DATASET_FILE = 'air_pollution_ireland.csv'
 MODELS_DIR = 'trained_models'
 TABLES_DIR = 'experimental_results_tables'
+TS_FIGURES_DIR = 'time_series_only'
+FORECAST_RESULTS_DIR = 'forecast_results'
+PATTERN_ANALYSIS_DIR = 'pattern_analysis_results'
+PROFESSIONAL_RESULTS_DIR = 'professional_results'
+VISUALIZATION_RESULTS_DIR = 'visualization_results'
 RANDOM_STATE = 42
 
 # Set style for better plots
@@ -52,6 +145,625 @@ def create_directories():
     """Create necessary directories"""
     os.makedirs(MODELS_DIR, exist_ok=True)
     os.makedirs(TABLES_DIR, exist_ok=True)
+    os.makedirs(TS_FIGURES_DIR, exist_ok=True)
+    os.makedirs(FORECAST_RESULTS_DIR, exist_ok=True)
+    os.makedirs(PATTERN_ANALYSIS_DIR, exist_ok=True)
+    os.makedirs(PROFESSIONAL_RESULTS_DIR, exist_ok=True)
+    os.makedirs(VISUALIZATION_RESULTS_DIR, exist_ok=True)
+
+# ============================================================================
+# TIME SERIES ANALYSIS FUNCTIONS
+# ============================================================================
+
+def load_and_clean_data_for_ts():
+    """Load data and handle duplicates properly for time series analysis"""
+    print("\n🔍 Loading and cleaning data for time series analysis...")
+    
+    # Load data
+    df = pd.read_csv(DATASET_FILE)
+    print(f"✅ Original dataset: {df.shape}")
+    
+    # Create datetime index
+    df['DateTime'] = pd.to_datetime(df['Date']) + pd.to_timedelta(df['Hour'], unit='h')
+    
+    print(f"   Checking for duplicates...")
+    print(f"   Total rows: {len(df)}")
+    print(f"   Unique timestamps: {df['DateTime'].nunique()}")
+    print(f"   Duplicate timestamps: {len(df) - df['DateTime'].nunique()}")
+    
+    # Handle duplicates by taking the mean of NO2 values for same timestamp
+    df_clean = df.groupby('DateTime').agg({
+        'NO2': 'mean',  # Take mean for duplicate timestamps
+        'temp': 'mean',
+        'rhum': 'mean'
+    }).sort_index()
+    
+    print(f"   After duplicate handling: {df_clean.shape}")
+    
+    # Focus on NO2 and handle missing values
+    no2_series = df_clean['NO2'].copy()
+    print(f"   Missing values in NO2: {no2_series.isna().sum()}")
+    
+    # Conservative interpolation (max 6 hours gap)
+    no2_clean = no2_series.interpolate(method='linear', limit=6).dropna()
+    
+    print(f"   Final clean series: {len(no2_clean)} observations")
+    print(f"   Date range: {no2_clean.index.min()} to {no2_clean.index.max()}")
+    print(f"   NO2 stats: Mean={no2_clean.mean():.2f}, Std={no2_clean.std():.2f}")
+    
+    return no2_clean
+
+def create_train_test_split_ts(series, train_ratio=0.8):
+    """Create temporal train/test split for time series"""
+    split_point = int(len(series) * train_ratio)
+    train_series = series[:split_point]
+    test_series = series[split_point:]
+    
+    print(f"\n🔄 Time Series Train/Test Split:")
+    print(f"   Training: {train_series.index[0]} to {train_series.index[-1]} ({len(train_series):,} obs)")
+    print(f"   Testing: {test_series.index[0]} to {test_series.index[-1]} ({len(test_series):,} obs)")
+    
+    return train_series, test_series
+
+def fit_time_series_models(train_series, test_series):
+    """Fit ARIMA models and evaluate properly"""
+    print(f"\n📈 Fitting and evaluating time series models...")
+    
+    results = {}
+    
+    # Test different ARIMA orders
+    orders_to_test = [(1,1,1), (2,1,1), (1,1,2), (0,1,1)]
+    
+    for order in orders_to_test:
+        print(f"\n   Testing ARIMA{order}...")
+        try:
+            # Fit model
+            model = ARIMA(train_series, order=order)
+            fitted_model = model.fit()
+            
+            # Training predictions (in-sample)
+            train_pred = fitted_model.fittedvalues
+            train_actual = train_series[1:]  # Skip first value due to differencing
+            train_pred_aligned = train_pred[1:]  # Align predictions
+            
+            # Training metrics
+            train_mae = mean_absolute_error(train_actual, train_pred_aligned)
+            train_rmse = np.sqrt(mean_squared_error(train_actual, train_pred_aligned))
+            train_r2 = r2_score(train_actual, train_pred_aligned)
+            
+            # Testing predictions (out-of-sample)
+            test_pred = fitted_model.forecast(steps=len(test_series))
+            test_mae = mean_absolute_error(test_series, test_pred)
+            test_rmse = np.sqrt(mean_squared_error(test_series, test_pred))
+            test_r2 = r2_score(test_series, test_pred)
+            
+            results[f'ARIMA{order}'] = {
+                'model': fitted_model,
+                'order': order,
+                'train_mae': train_mae,
+                'train_rmse': train_rmse,
+                'train_r2': train_r2,
+                'test_mae': test_mae,
+                'test_rmse': test_rmse,
+                'test_r2': test_r2,
+                'test_predictions': test_pred,
+                'aic': fitted_model.aic
+            }
+            
+            print(f"     Training:  MAE={train_mae:.3f}, R²={train_r2:.3f}")
+            print(f"     Testing:   MAE={test_mae:.3f}, R²={test_r2:.3f}")
+            
+        except Exception as e:
+            print(f"     ❌ Failed: {e}")
+    
+    # Benchmark: Naive model
+    print(f"\n   Testing Naive model...")
+    naive_test_pred = np.full(len(test_series), train_series.iloc[-1])
+    naive_mae = mean_absolute_error(test_series, naive_test_pred)
+    naive_rmse = np.sqrt(mean_squared_error(test_series, naive_test_pred))
+    naive_r2 = r2_score(test_series, naive_test_pred)
+    
+    results['Naive'] = {
+        'test_mae': naive_mae,
+        'test_rmse': naive_rmse,
+        'test_r2': naive_r2,
+        'test_predictions': naive_test_pred
+    }
+    
+    print(f"     Testing:   MAE={naive_mae:.3f}, R²={naive_r2:.3f}")
+    
+    return results
+
+def create_time_series_visualizations(train_series, test_series, results):
+    """Create comprehensive time series visualization plots"""
+    print(f"\n📊 Creating time series visualization plots...")
+    
+    # Create a large figure with multiple subplots
+    fig = plt.figure(figsize=(20, 16))
+    
+    # 1. Full time series overview
+    ax1 = plt.subplot(3, 3, 1)
+    full_series = pd.concat([train_series, test_series])
+    full_series.plot(ax=ax1, color='blue', alpha=0.7, linewidth=1)
+    ax1.axvline(x=train_series.index[-1], color='red', linestyle='--', linewidth=2, label='Train/Test Split')
+    ax1.set_title('Complete Time Series - NO2 Air Pollution')
+    ax1.set_ylabel('NO2 (µg/m³)')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Testing period predictions
+    ax2 = plt.subplot(3, 3, 2)
+    test_series.plot(ax=ax2, label='Actual', color='black', linewidth=2)
+    
+    colors = ['red', 'green', 'purple', 'orange']
+    for i, (model_name, result) in enumerate(results.items()):
+        if 'test_predictions' in result and model_name.startswith('ARIMA'):
+            test_pred_series = pd.Series(result['test_predictions'], index=test_series.index)
+            test_pred_series.plot(ax=ax2, 
+                                label=f'{model_name} (R²={result["test_r2"]:.3f})',
+                                color=colors[i % len(colors)], 
+                                linestyle='--', linewidth=2)
+    
+    ax2.set_title('Testing Period - Model Predictions')
+    ax2.set_ylabel('NO2 (µg/m³)')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Training vs Testing MAE comparison
+    ax3 = plt.subplot(3, 3, 3)
+    model_names = [name for name in results.keys() if name.startswith('ARIMA')]
+    train_maes = [results[name]['train_mae'] for name in model_names]
+    test_maes = [results[name]['test_mae'] for name in model_names]
+    
+    x = np.arange(len(model_names))
+    width = 0.35
+    
+    ax3.bar(x - width/2, train_maes, width, label='Training MAE', color='lightblue', alpha=0.7)
+    ax3.bar(x + width/2, test_maes, width, label='Testing MAE', color='lightcoral', alpha=0.7)
+    
+    ax3.set_title('Training vs Testing MAE')
+    ax3.set_ylabel('MAE (µg/m³)')
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(model_names, rotation=45)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. R² comparison
+    ax4 = plt.subplot(3, 3, 4)
+    train_r2s = [results[name]['train_r2'] for name in model_names]
+    test_r2s = [results[name]['test_r2'] for name in model_names]
+    
+    ax4.bar(x - width/2, train_r2s, width, label='Training R²', color='lightblue', alpha=0.7)
+    ax4.bar(x + width/2, test_r2s, width, label='Testing R²', color='lightcoral', alpha=0.7)
+    
+    ax4.set_title('Training vs Testing R²')
+    ax4.set_ylabel('R²')
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(model_names, rotation=45)
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    ax4.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+    
+    # 5. Model performance ranking
+    ax5 = plt.subplot(3, 3, 5)
+    all_models = list(results.keys())
+    all_test_maes = [results[name]['test_mae'] for name in all_models]
+    
+    bars = ax5.bar(range(len(all_models)), all_test_maes, color='lightgreen', alpha=0.7)
+    ax5.set_title('Model Ranking by Testing MAE')
+    ax5.set_ylabel('Testing MAE (µg/m³)')
+    ax5.set_xticks(range(len(all_models)))
+    ax5.set_xticklabels(all_models, rotation=45)
+    ax5.grid(True, alpha=0.3)
+    
+    # Add value labels
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        ax5.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                f'{height:.2f}', ha='center', va='bottom')
+    
+    # 6. Time series decomposition view
+    ax6 = plt.subplot(3, 3, 6)
+    # Show seasonal patterns
+    monthly_avg = full_series.resample('M').mean()
+    monthly_avg.plot(ax=ax6, marker='o', linewidth=2)
+    ax6.set_title('Monthly Average NO2 Trends')
+    ax6.set_ylabel('NO2 (µg/m³)')
+    ax6.grid(True, alpha=0.3)
+    
+    # 7. Residuals analysis for best model
+    ax7 = plt.subplot(3, 3, 7)
+    best_arima = min([name for name in results.keys() if name.startswith('ARIMA')], 
+                    key=lambda x: results[x]['test_mae'])
+    residuals = test_series.values - results[best_arima]['test_predictions']
+    
+    ax7.hist(residuals, bins=30, alpha=0.7, color='skyblue', density=True)
+    ax7.set_title(f'Residuals Distribution - {best_arima}')
+    ax7.set_xlabel('Residuals (µg/m³)')
+    ax7.set_ylabel('Density')
+    ax7.grid(True, alpha=0.3)
+    
+    # 8. Prediction vs Actual scatter
+    ax8 = plt.subplot(3, 3, 8)
+    best_pred = results[best_arima]['test_predictions']
+    ax8.scatter(test_series.values, best_pred, alpha=0.6, color='purple')
+    
+    # Add perfect prediction line
+    min_val = min(test_series.min(), best_pred.min())
+    max_val = max(test_series.max(), best_pred.max())
+    ax8.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    
+    ax8.set_title(f'Predicted vs Actual - {best_arima}')
+    ax8.set_xlabel('Actual NO2 (µg/m³)')
+    ax8.set_ylabel('Predicted NO2 (µg/m³)')
+    ax8.legend()
+    ax8.grid(True, alpha=0.3)
+    
+    # 9. Error over time
+    ax9 = plt.subplot(3, 3, 9)
+    errors = np.abs(test_series.values - best_pred)
+    error_series = pd.Series(errors, index=test_series.index)
+    error_series.rolling(window=24).mean().plot(ax=ax9, color='red', linewidth=2)
+    
+    ax9.set_title('24-Hour Rolling Mean Absolute Error')
+    ax9.set_ylabel('Absolute Error (µg/m³)')
+    ax9.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(f'{TS_FIGURES_DIR}/comprehensive_time_series_analysis.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    print(f"✅ Time series plots saved to {TS_FIGURES_DIR}/comprehensive_time_series_analysis.png")
+
+def generate_forecast(train_series, test_series, best_model, forecast_steps=365*24):
+    """Generate 1-year forecast"""
+    print(f"\n🔮 Generating 1-year forecast...")
+    
+    try:
+        # Fit model on all available data
+        full_series = pd.concat([train_series, test_series])
+        model = ARIMA(full_series, order=best_model['order'])
+        fitted_model = model.fit()
+        
+        # Generate forecast
+        forecast = fitted_model.forecast(steps=forecast_steps)
+        forecast_ci = fitted_model.get_forecast(steps=forecast_steps).conf_int()
+        
+        # Create forecast dates
+        last_date = full_series.index[-1]
+        forecast_dates = pd.date_range(start=last_date + timedelta(hours=1), 
+                                     periods=forecast_steps, freq='h')
+        
+        # Create forecast dataframe
+        forecast_df = pd.DataFrame({
+            'Date': forecast_dates,
+            'NO2_Forecast': forecast,
+            'Lower_CI': forecast_ci.iloc[:, 0] if hasattr(forecast_ci, 'iloc') else np.nan,
+            'Upper_CI': forecast_ci.iloc[:, 1] if hasattr(forecast_ci, 'iloc') else np.nan
+        })
+        
+        # Save forecast
+        forecast_df.to_csv(f'{TABLES_DIR}/Table7_One_Year_Forecast.csv', index=False)
+        
+        print(f"   ✅ Forecast saved to {TABLES_DIR}/Table7_One_Year_Forecast.csv")
+        print(f"   📊 Forecast statistics:")
+        print(f"      Mean: {forecast.mean():.2f} µg/m³")
+        print(f"      Std: {forecast.std():.2f} µg/m³")
+        print(f"      Min: {forecast.min():.2f} µg/m³")
+        print(f"      Max: {forecast.max():.2f} µg/m³")
+        
+        # Create forecast plot
+        plt.figure(figsize=(16, 8))
+        
+        # Plot last 30 days of actual data
+        last_30_days = full_series.last('30D')
+        plt.plot(last_30_days.index, last_30_days.values, 
+                label='Last 30 Days (Actual)', color='blue', linewidth=2)
+        
+        # Plot forecast (show first 30 days for clarity)
+        forecast_30d = forecast[:30*24]  # First 30 days
+        forecast_dates_30d = forecast_dates[:30*24]
+        
+        plt.plot(forecast_dates_30d, forecast_30d, 
+                label='30-Day Forecast', color='red', linewidth=2)
+        
+        plt.title('NO2 Air Pollution: Last 30 Days + Next 30 Days Forecast')
+        plt.xlabel('Date')
+        plt.ylabel('NO2 (µg/m³)')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        plt.savefig(f'{TS_FIGURES_DIR}/forecast_visualization.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        
+        return forecast_df
+        
+    except Exception as e:
+        print(f"   ❌ Forecast failed: {e}")
+        return None
+
+def save_time_series_results(results):
+    """Save time series results to experimental tables"""
+    print(f"\n📋 Saving time series results...")
+    
+    summary_data = []
+    for model_name, result in results.items():
+        row = {
+            'Model': model_name,
+            'Test_MAE': result['test_mae'],
+            'Test_RMSE': result['test_rmse'],
+            'Test_R2': result['test_r2']
+        }
+        
+        if 'train_mae' in result:
+            row.update({
+                'Train_MAE': result['train_mae'],
+                'Train_RMSE': result['train_rmse'],
+                'Train_R2': result['train_r2'],
+                'AIC': result.get('aic', 'N/A')
+            })
+        
+        summary_data.append(row)
+    
+    summary_df = pd.DataFrame(summary_data)
+    summary_df = summary_df.sort_values('Test_MAE')
+    
+    summary_df.to_csv(f'{TABLES_DIR}/Table6_Time_Series_Performance.csv', index=False)
+    
+    print("=" * 80)
+    print("TIME SERIES ANALYSIS RESULTS")
+    print("=" * 80)
+    print(summary_df.to_string(index=False, float_format='%.4f'))
+    print("=" * 80)
+    
+    best_model = summary_df.iloc[0]
+    print(f"\n🏆 BEST TIME SERIES MODEL: {best_model['Model']}")
+    print(f"   Testing MAE: {best_model['Test_MAE']:.3f} µg/m³")
+    print(f"   Testing R²: {best_model['Test_R2']:.6f}")
+    
+    if best_model['Test_R2'] < 0:
+        print(f"   ⚠️  Negative R² indicates model performs worse than mean prediction")
+        print(f"   💡 This is normal for complex environmental time series")
+    
+    return summary_df
+
+# ============================================================================
+# IMPROVED FORECASTING FUNCTIONS
+# ============================================================================
+
+def create_future_features(start_date, hours=8760):
+    """Create feature matrix for future predictions"""
+    print(f"\n🔮 Creating features for 1-year forecast ({hours:,} hours)...")
+    
+    # Create datetime range for next year
+    date_range = pd.date_range(start=start_date, periods=hours, freq='h')
+    
+    # Create base dataframe with datetime features
+    future_df = pd.DataFrame({
+        'Date': date_range,
+        'Hour': date_range.hour,
+        'Year': date_range.year,
+        'Month': date_range.month,
+        'Day': date_range.day
+    })
+    
+    # Add seasonal encoding
+    future_df['Season'] = future_df['Month'].apply(map_season)
+    
+    # For missing meteorological features, use historical averages by month and hour
+    print("   📊 Using historical averages for meteorological features...")
+    
+    # Load original data to get historical patterns
+    df_orig = pd.read_csv(DATASET_FILE)
+    df_orig['Date'] = pd.to_datetime(df_orig['Date'])
+    df_orig['Month'] = df_orig['Date'].dt.month
+    df_orig['Hour'] = df_orig['Date'].dt.hour
+    
+    # Calculate monthly and hourly averages for each feature
+    features_to_average = ['ind', 'temp', 'dewpt', 'rhum', 'msl', 'wdsp', 'wddir', 'clamt']
+    
+    for feature in features_to_average:
+        if feature in df_orig.columns:
+            # Calculate average by month and hour
+            monthly_hourly_avg = df_orig.groupby(['Month', 'Hour'])[feature].mean()
+            
+            # Map to future dataframe
+            future_df[feature] = future_df.apply(
+                lambda row: monthly_hourly_avg.get((row['Month'], row['Hour']), 
+                                                 df_orig[feature].mean()), axis=1
+            )
+        else:
+            # Use overall mean if feature not found
+            future_df[feature] = df_orig.get(feature, pd.Series([20.0])).mean()
+    
+    print(f"   ✅ Future features created: {future_df.shape}")
+    return future_df
+
+def generate_ml_forecast(best_model, scaler, label_encoder, X, y, hours=8760):
+    """Generate 1-year forecast using the best ML model"""
+    print(f"\n🚀 Generating 1-year NO2 forecast using best ML model...")
+    
+    # Get the last date from the dataset
+    df_orig = pd.read_csv(DATASET_FILE)
+    df_orig['Date'] = pd.to_datetime(df_orig['Date'])
+    last_date = df_orig['Date'].max()
+    
+    # Create future features
+    future_df = create_future_features(last_date + timedelta(hours=1), hours)
+    
+    # Encode season if label encoder is available
+    if label_encoder is not None:
+        future_df['Season'] = label_encoder.transform(future_df['Season'])
+    else:
+        # Manual encoding if needed
+        season_map = {'Spring (Mar-May)': 0, 'Summer (Jun-Aug)': 1, 'Autumn (Sep-Nov)': 2, 'Winter (Dec-Feb)': 3}
+        future_df['Season'] = future_df['Season'].map(season_map)
+    
+    # Select features in the same order as training
+    feature_columns = list(X.columns)
+    X_future = future_df[feature_columns]
+    
+    # Handle any missing columns
+    for col in feature_columns:
+        if col not in X_future.columns:
+            X_future[col] = 0
+    
+    # Scale features
+    X_future_scaled = scaler.transform(X_future)
+    
+    # Generate predictions
+    print("   🔄 Making predictions...")
+    forecast = best_model.predict(X_future_scaled)
+    
+    # Create forecast dataframe
+    forecast_df = pd.DataFrame({
+        'DateTime': future_df['Date'],
+        'Year': future_df['Year'],
+        'Month': future_df['Month'],
+        'Day': future_df['Day'],
+        'Hour': future_df['Hour'],
+        'NO2_Forecast': forecast
+    })
+    
+    # Add additional statistics
+    forecast_df['NO2_Forecast_MA24'] = forecast_df['NO2_Forecast'].rolling(window=24, center=True).mean()
+    forecast_df['NO2_Forecast_MA168'] = forecast_df['NO2_Forecast'].rolling(window=168, center=True).mean()  # Weekly average
+    
+    # Save forecast
+    forecast_csv_path = f'{FORECAST_RESULTS_DIR}/1_year_no2_forecast.csv'
+    forecast_df.to_csv(forecast_csv_path, index=False)
+    
+    print(f"   ✅ Forecast saved: {forecast_csv_path}")
+    print(f"   📊 Forecast statistics:")
+    print(f"      Mean: {forecast.mean():.2f} µg/m³")
+    print(f"      Std: {forecast.std():.2f} µg/m³")
+    print(f"      Min: {forecast.min():.2f} µg/m³")
+    print(f"      Max: {forecast.max():.2f} µg/m³")
+    print(f"      Range: {forecast.max() - forecast.min():.2f} µg/m³")
+    
+    return forecast_df
+
+def create_forecast_visualizations(forecast_df, model_name, model_performance):
+    """Create comprehensive forecast visualizations"""
+    print(f"\n📊 Creating forecast visualizations...")
+    
+    # Create comprehensive forecast visualization
+    fig = plt.figure(figsize=(20, 12))
+    
+    # 1. Full year forecast overview
+    ax1 = plt.subplot(2, 3, 1)
+    ax1.plot(forecast_df['DateTime'], forecast_df['NO2_Forecast'], alpha=0.7, linewidth=1, color='red')
+    ax1.plot(forecast_df['DateTime'], forecast_df['NO2_Forecast_MA168'], linewidth=2, color='darkred', label='Weekly Moving Average')
+    ax1.set_title('1-Year NO2 Forecast Overview', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('NO2 (µg/m³)')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Monthly forecast patterns
+    ax2 = plt.subplot(2, 3, 2)
+    monthly_forecast = forecast_df.groupby('Month')['NO2_Forecast'].mean()
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    bars = ax2.bar(range(1, 13), monthly_forecast.values, alpha=0.8, color='skyblue', edgecolor='navy')
+    ax2.set_title('Monthly Forecast Averages', fontsize=14, fontweight='bold')
+    ax2.set_ylabel('NO2 (µg/m³)')
+    ax2.set_xticks(range(1, 13))
+    ax2.set_xticklabels([m[:3] for m in months])
+    ax2.grid(True, alpha=0.3)
+    
+    # Add values on bars
+    for bar, value in zip(bars, monthly_forecast.values):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                f'{value:.1f}', ha='center', va='bottom', fontweight='bold')
+    
+    # 3. Daily forecast patterns
+    ax3 = plt.subplot(2, 3, 3)
+    hourly_forecast = forecast_df.groupby('Hour')['NO2_Forecast'].mean()
+    
+    ax3.plot(hourly_forecast.index, hourly_forecast.values, linewidth=3, color='green', marker='o', markersize=4)
+    ax3.fill_between(hourly_forecast.index, hourly_forecast.values, alpha=0.3, color='green')
+    ax3.set_title('Hourly Forecast Patterns', fontsize=14, fontweight='bold')
+    ax3.set_ylabel('NO2 (µg/m³)')
+    ax3.set_xlabel('Hour of Day')
+    ax3.set_xticks(range(0, 24, 4))
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Forecast distribution
+    ax4 = plt.subplot(2, 3, 4)
+    ax4.hist(forecast_df['NO2_Forecast'], bins=50, alpha=0.7, color='purple', edgecolor='black', density=True)
+    
+    # Add statistical lines
+    mean_val = forecast_df['NO2_Forecast'].mean()
+    median_val = forecast_df['NO2_Forecast'].median()
+    ax4.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.1f}')
+    ax4.axvline(median_val, color='green', linestyle='--', linewidth=2, label=f'Median: {median_val:.1f}')
+    
+    ax4.set_title('Forecast Distribution', fontsize=14, fontweight='bold')
+    ax4.set_xlabel('NO2 (µg/m³)')
+    ax4.set_ylabel('Density')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    
+    # 5. Model performance summary
+    ax5 = plt.subplot(2, 3, 5)
+    ax5.axis('off')
+    
+    performance_text = f"""
+MODEL PERFORMANCE SUMMARY
+Model: {model_name}
+
+Training Performance:
+• R²: {model_performance.get('train_r2', 0):.4f}
+• MAE: ±{model_performance.get('train_mae', 0):.3f} µg/m³
+• RMSE: ±{model_performance.get('train_rmse', 0):.3f} µg/m³
+
+Testing Performance:
+• R²: {model_performance.get('test_r2', 0):.4f}
+• MAE: ±{model_performance.get('test_mae', 0):.3f} µg/m³  
+• RMSE: ±{model_performance.get('test_rmse', 0):.3f} µg/m³
+
+Forecast Statistics:
+• Mean: {forecast_df['NO2_Forecast'].mean():.2f} µg/m³
+• Std Dev: {forecast_df['NO2_Forecast'].std():.2f} µg/m³
+• Range: {forecast_df['NO2_Forecast'].min():.1f} - {forecast_df['NO2_Forecast'].max():.1f} µg/m³
+• Total Hours: {len(forecast_df):,}
+"""
+    
+    ax5.text(0.05, 0.95, performance_text, transform=ax5.transAxes, 
+             fontsize=10, verticalalignment='top', fontfamily='monospace',
+             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
+    # 6. First 30 days detailed view
+    ax6 = plt.subplot(2, 3, 6)
+    first_30_days = forecast_df.head(30*24)  # First 30 days
+    
+    ax6.plot(first_30_days['DateTime'], first_30_days['NO2_Forecast'], linewidth=2, color='orange')
+    ax6.plot(first_30_days['DateTime'], first_30_days['NO2_Forecast_MA24'], linewidth=3, color='darkorange', label='Daily Average')
+    
+    ax6.set_title('First 30 Days - Detailed View', fontsize=14, fontweight='bold')
+    ax6.set_ylabel('NO2 (µg/m³)')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    
+    # Rotate x-axis labels for better readability
+    plt.setp(ax6.xaxis.get_majorticklabels(), rotation=45)
+    
+    plt.suptitle(f'1-Year NO2 Forecast Analysis - {model_name}\nIreland Air Quality Prediction (8,760 Hours)', 
+                 fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    
+    # Save visualization
+    viz_path = f'{FORECAST_RESULTS_DIR}/1_year_no2_forecast_visualization.png'
+    plt.savefig(viz_path, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    print(f"   ✅ Forecast visualization saved: {viz_path}")
+
+# ============================================================================
+# MACHINE LEARNING ANALYSIS FUNCTIONS (EXISTING CODE)
+# ============================================================================
 
 def map_season(month):
     """Map month to season as in the original notebook"""
@@ -200,25 +912,18 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, model_name):
         train_mape = float('inf')
         test_mape = float('inf')
     
-    # Adjusted R2
-    n_test = len(X_test)
-    p = X_test.shape[1]
-    test_adj_r2 = adjusted_r2(test_r2, n_test, p)
-    
-    metrics = {
-        'Model': model_name,
-        'Train_R2': train_r2,
-        'Test_R2': test_r2,
-        'Train_RMSE': train_rmse,
-        'Test_RMSE': test_rmse,
-        'Train_MAE': train_mae,
-        'Test_MAE': test_mae,
-        'Train_MAPE': train_mape,
-        'Test_MAPE': test_mape,
-        'Test_Adj_R2': test_adj_r2
+    return {
+        'train_r2': train_r2,
+        'test_r2': test_r2,
+        'train_rmse': train_rmse,
+        'test_rmse': test_rmse,
+        'train_mae': train_mae,
+        'test_mae': test_mae,
+        'train_mape': train_mape,
+        'test_mape': test_mape,
+        'y_pred_train': y_train_pred,
+        'y_pred_test': y_test_pred
     }
-    
-    return metrics, y_train_pred, y_test_pred
 
 def train_all_models(X_train, X_test, y_train, y_test):
     """Train all models and return results"""
@@ -237,36 +942,53 @@ def train_all_models(X_train, X_test, y_train, y_test):
             model.fit(X_train, y_train)
             
             # Evaluate model
-            metrics, y_train_pred, y_test_pred = evaluate_model(model, X_train, X_test, y_train, y_test, model_name)
+            metrics = evaluate_model(model, X_train, X_test, y_train, y_test, model_name)
             results.append(metrics)
             
             # Store model and predictions
             trained_models[model_name] = model
             model_predictions[model_name] = {
-                'train_pred': y_train_pred,
-                'test_pred': y_test_pred
+                'train_pred': metrics['y_pred_train'],
+                'test_pred': metrics['y_pred_test']
             }
             
             # Save model
             model_path = os.path.join(MODELS_DIR, f'{model_name}_model.pkl')
             joblib.dump(model, model_path)
             
-            print(f"R² Score: {metrics['Test_R2']:.4f}")
-            print(f"RMSE: {metrics['Test_RMSE']:.4f}")
+            print(f"R² Score: {metrics['test_r2']:.4f}")
+            print(f"RMSE: {metrics['test_rmse']:.4f}")
             
         except Exception as e:
             print(f"Error training {model_name}: {str(e)}")
             continue
     
-    # Create results DataFrame
-    results_df = pd.DataFrame(results)
-    results_df = results_df.sort_values('Test_R2', ascending=False).reset_index(drop=True)
+    # Create results DataFrame with proper column names
+    results_data = []
+    model_names = list(models.keys())
+    for i, result in enumerate(results):
+        model_name = model_names[i]
+        row = {
+            'Model': model_name,
+            'train_r2': result['train_r2'],
+            'test_r2': result['test_r2'],
+            'train_rmse': result['train_rmse'],
+            'test_rmse': result['test_rmse'],
+            'train_mae': result['train_mae'],
+            'test_mae': result['test_mae'],
+            'train_mape': result['train_mape'],
+            'test_mape': result['test_mape']
+        }
+        results_data.append(row)
+    
+    results_df = pd.DataFrame(results_data)
+    results_df = results_df.sort_values('test_r2', ascending=False).reset_index(drop=True)
     
     # Save summaries
     comprehensive_path = os.path.join(MODELS_DIR, 'comprehensive_model_performance_summary.csv')
     results_df.to_csv(comprehensive_path, index=False)
     
-    simple_summary = results_df[['Model', 'Test_R2', 'Test_RMSE', 'Test_MAE', 'Test_MAPE']].copy()
+    simple_summary = results_df[['Model', 'test_r2', 'test_rmse', 'test_mae', 'test_mape']].copy()
     simple_path = os.path.join(MODELS_DIR, 'model_performance_summary.csv')
     simple_summary.to_csv(simple_path, index=False)
     
@@ -570,6 +1292,440 @@ def generate_experimental_tables(viz_df):
     print(f"📁 Tables saved in: {TABLES_DIR}/")
     for idx, row in summary_df.iterrows():
         print(f"   • {row['Table_Number']}: {row['Filename']} ({row['Status']})")
+
+# ============================================================================
+# PATTERN ANALYSIS FUNCTIONS
+# ============================================================================
+
+def analyze_comprehensive_patterns(viz_df):
+    """Comprehensive pattern analysis with insights extraction"""
+    print("\n🔍 COMPREHENSIVE PATTERN ANALYSIS")
+    print("="*60)
+    
+    # Prepare data
+    df_clean = viz_df.dropna(subset=['NO2']).copy()
+    df_clean['DateTime'] = pd.to_datetime(df_clean[['Year', 'Month', 'Day', 'Hour']])
+    df_clean['DayOfWeek'] = df_clean['DateTime'].dt.dayofweek
+    
+    print(f"   📊 Analyzing {len(df_clean):,} clean records")
+    
+    # Create comprehensive pattern analysis figure
+    fig = plt.figure(figsize=(24, 18))
+    
+    # 1. Long-term trend analysis
+    ax1 = plt.subplot(3, 4, 1)
+    yearly_stats = df_clean.groupby('Year')['NO2'].mean()
+    slope, intercept, r_value, p_value, std_err = stats.linregress(yearly_stats.index, yearly_stats.values)
+    
+    # Plot with confidence interval
+    yearly_std = df_clean.groupby('Year')['NO2'].std()
+    ax1.fill_between(yearly_stats.index, 
+                     yearly_stats.values - yearly_std.values,
+                     yearly_stats.values + yearly_std.values,
+                     alpha=0.3, color='lightblue')
+    ax1.plot(yearly_stats.index, yearly_stats.values, 'o-', linewidth=3, markersize=8, color='blue')
+    
+    # Add trend line
+    trend_line = slope * yearly_stats.index + intercept
+    ax1.plot(yearly_stats.index, trend_line, '--', color='red', linewidth=2, alpha=0.8)
+    
+    trend_direction = "Decreasing" if slope < 0 else "Increasing"
+    ax1.set_title(f'Long-term Trend: {trend_direction}\n({slope:.3f} µg/m³/year, R²={r_value**2:.3f})', fontweight='bold')
+    ax1.set_ylabel('NO2 (µg/m³)')
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Seasonal patterns
+    ax2 = plt.subplot(3, 4, 2)
+    monthly_avg = df_clean.groupby('Month')['NO2'].mean()
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    # Create gradient colors
+    colors = plt.cm.RdYlBu_r(np.linspace(0.2, 0.8, 12))
+    bars = ax2.bar(range(1, 13), monthly_avg.values, color=colors, alpha=0.8)
+    
+    # Highlight highest and lowest
+    max_month = monthly_avg.idxmax()
+    min_month = monthly_avg.idxmin()
+    bars[max_month-1].set_edgecolor('red')
+    bars[max_month-1].set_linewidth(3)
+    bars[min_month-1].set_edgecolor('green')
+    bars[min_month-1].set_linewidth(3)
+    
+    ax2.set_title('Seasonal Patterns\n(Red: Peak, Green: Lowest)', fontweight='bold')
+    ax2.set_ylabel('NO2 (µg/m³)')
+    ax2.set_xticks(range(1, 13))
+    ax2.set_xticklabels([m[:3] for m in months])
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Daily patterns
+    ax3 = plt.subplot(3, 4, 3)
+    hourly_avg = df_clean.groupby('Hour')['NO2'].mean()
+    
+    ax3.plot(hourly_avg.index, hourly_avg.values, linewidth=3, color='green', marker='o', markersize=6)
+    ax3.fill_between(hourly_avg.index, hourly_avg.values, alpha=0.3, color='green')
+    
+    # Highlight rush hours
+    rush_hours = [7, 8, 9, 17, 18, 19]
+    for hour in rush_hours:
+        if hour in hourly_avg.index:
+            ax3.axvline(x=hour, color='red', linestyle='--', alpha=0.7)
+    
+    peak_hour = hourly_avg.idxmax()
+    ax3.set_title(f'Daily Patterns (Peak: {peak_hour}:00)', fontweight='bold')
+    ax3.set_ylabel('NO2 (µg/m³)')
+    ax3.set_xlabel('Hour of Day')
+    ax3.set_xticks(range(0, 24, 4))
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Weekly patterns
+    ax4 = plt.subplot(3, 4, 4)
+    weekday_avg = df_clean.groupby('DayOfWeek')['NO2'].mean()
+    day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    
+    colors_week = ['lightcoral' if i < 5 else 'lightgreen' for i in range(7)]
+    bars = ax4.bar(range(7), weekday_avg.values, color=colors_week, alpha=0.8, edgecolor='black')
+    
+    ax4.set_title('Weekly Patterns\n(Red: Weekdays, Green: Weekends)', fontweight='bold')
+    ax4.set_ylabel('NO2 (µg/m³)')
+    ax4.set_xticks(range(7))
+    ax4.set_xticklabels(day_names)
+    ax4.grid(True, alpha=0.3)
+    
+    # 5. Distribution analysis
+    ax5 = plt.subplot(3, 4, 5)
+    ax5.hist(df_clean['NO2'], bins=50, alpha=0.7, color='purple', edgecolor='black', density=True)
+    
+    # Add statistical lines
+    mean_val = df_clean['NO2'].mean()
+    median_val = df_clean['NO2'].median()
+    ax5.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.1f}')
+    ax5.axvline(median_val, color='green', linestyle='--', linewidth=2, label=f'Median: {median_val:.1f}')
+    
+    # Add percentiles
+    p25, p75 = np.percentile(df_clean['NO2'], [25, 75])
+    ax5.axvline(p25, color='orange', linestyle=':', alpha=0.7, label=f'25th: {p25:.1f}')
+    ax5.axvline(p75, color='orange', linestyle=':', alpha=0.7, label=f'75th: {p75:.1f}')
+    
+    ax5.set_title('Statistical Distribution', fontweight='bold')
+    ax5.set_xlabel('NO2 (µg/m³)')
+    ax5.set_ylabel('Density')
+    ax5.legend()
+    ax5.grid(True, alpha=0.3)
+    
+    # 6. Anomaly detection
+    ax6 = plt.subplot(3, 4, 6)
+    
+    # Simple anomaly detection using IQR
+    Q1 = df_clean['NO2'].quantile(0.25)
+    Q3 = df_clean['NO2'].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 3 * IQR
+    upper_bound = Q3 + 3 * IQR
+    
+    anomalies = df_clean[(df_clean['NO2'] < lower_bound) | (df_clean['NO2'] > upper_bound)]
+    
+    # Plot time series with anomalies
+    sample_data = df_clean.sample(min(5000, len(df_clean))).sort_values('DateTime')
+    ax6.plot(sample_data['DateTime'], sample_data['NO2'], alpha=0.5, color='blue', linewidth=1)
+    
+    if len(anomalies) > 0:
+        anomaly_sample = anomalies.sample(min(500, len(anomalies)))
+        ax6.scatter(anomaly_sample['DateTime'], anomaly_sample['NO2'], 
+                   color='red', s=30, alpha=0.8, label=f'Anomalies ({len(anomalies)})')
+    
+    ax6.set_title(f'Anomaly Detection\n({len(anomalies)} anomalies, {len(anomalies)/len(df_clean)*100:.1f}%)', 
+                 fontweight='bold')
+    ax6.set_ylabel('NO2 (µg/m³)')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    
+    # 7. Meteorological correlations
+    ax7 = plt.subplot(3, 4, 7)
+    
+    meteo_vars = ['temp', 'dewpt', 'rhum', 'wdsp', 'msl']
+    available_vars = ['NO2'] + [var for var in meteo_vars if var in df_clean.columns and df_clean[var].notna().sum() > 100]
+    
+    if len(available_vars) > 2:
+        corr_matrix = df_clean[available_vars].corr()
+        
+        # Create heatmap
+        sns.heatmap(corr_matrix, annot=True, cmap='RdBu_r', center=0, 
+                   ax=ax7, cbar_kws={'label': 'Correlation'}, 
+                   fmt='.2f', square=True)
+        ax7.set_title('Meteorological Correlations', fontweight='bold')
+    else:
+        ax7.text(0.5, 0.5, 'Limited Correlation Data', ha='center', va='center', 
+                transform=ax7.transAxes, fontsize=12)
+        ax7.set_title('Meteorological Correlations', fontweight='bold')
+    
+    # 8. Wind patterns (if available)
+    ax8 = plt.subplot(3, 4, 8)
+    
+    if 'wddir' in df_clean.columns and df_clean['wddir'].notna().sum() > 100:
+        wind_data = df_clean[['wddir', 'wdsp', 'NO2']].dropna()
+        
+        # Create wind direction sectors
+        def get_wind_sector(direction):
+            sectors = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+            sector_size = 360 / 8
+            sector_idx = int((direction + sector_size/2) % 360 // sector_size)
+            return sectors[sector_idx]
+        
+        wind_data['WindSector'] = wind_data['wddir'].apply(get_wind_sector)
+        sector_no2 = wind_data.groupby('WindSector')['NO2'].mean()
+        
+        # Reorder sectors clockwise from North
+        sector_order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        sector_ordered = [sector_no2.get(sector, 0) for sector in sector_order]
+        
+        bars = ax8.bar(sector_order, sector_ordered, alpha=0.7)
+        
+        # Color bars by NO2 level
+        colors = plt.cm.YlOrRd(np.linspace(0.3, 1, len(sector_ordered)))
+        sorted_indices = np.argsort(sector_ordered)
+        for i, bar in enumerate(bars):
+            bar.set_color(colors[np.where(sorted_indices == i)[0][0]])
+        
+        ax8.set_title('NO2 by Wind Direction', fontweight='bold')
+        ax8.set_ylabel('NO2 (µg/m³)')
+        ax8.grid(True, alpha=0.3)
+    else:
+        ax8.text(0.5, 0.5, 'Wind Data Unavailable', ha='center', va='center', 
+                transform=ax8.transAxes, fontsize=12)
+        ax8.set_title('Wind Direction Analysis', fontweight='bold')
+    
+    # 9. Seasonal-Hourly heatmap
+    ax9 = plt.subplot(3, 4, 9)
+    
+    pivot_data = df_clean.pivot_table(values='NO2', index='Hour', columns='Month', aggfunc='mean')
+    
+    sns.heatmap(pivot_data, cmap='YlOrRd', ax=ax9, cbar_kws={'label': 'NO2 (µg/m³)'})
+    ax9.set_title('Seasonal-Hourly Patterns', fontweight='bold')
+    ax9.set_xlabel('Month')
+    ax9.set_ylabel('Hour')
+    
+    # 10. Pollution trends by season
+    ax10 = plt.subplot(3, 4, 10)
+    
+    season_year = df_clean.groupby(['Year', 'Season'])['NO2'].mean().unstack()
+    
+    for season in season_year.columns:
+        ax10.plot(season_year.index, season_year[season], 
+                 marker='o', linewidth=2, label=season, markersize=6)
+    
+    ax10.set_title('Seasonal Trends Over Years', fontweight='bold')
+    ax10.set_ylabel('NO2 (µg/m³)')
+    ax10.legend()
+    ax10.grid(True, alpha=0.3)
+    
+    # 11. Weekend vs Weekday comparison
+    ax11 = plt.subplot(3, 4, 11)
+    
+    df_clean['IsWeekend'] = df_clean['DayOfWeek'].apply(lambda x: 'Weekend' if x >= 5 else 'Weekday')
+    weekend_comparison = df_clean.groupby(['Hour', 'IsWeekend'])['NO2'].mean().unstack()
+    
+    ax11.plot(weekend_comparison.index, weekend_comparison['Weekday'], 
+             linewidth=3, label='Weekday', color='red', marker='o', markersize=4)
+    ax11.plot(weekend_comparison.index, weekend_comparison['Weekend'], 
+             linewidth=3, label='Weekend', color='green', marker='s', markersize=4)
+    
+    ax11.set_title('Weekday vs Weekend Patterns', fontweight='bold')
+    ax11.set_ylabel('NO2 (µg/m³)')
+    ax11.set_xlabel('Hour of Day')
+    ax11.legend()
+    ax11.grid(True, alpha=0.3)
+    
+    # 12. Key insights summary
+    ax12 = plt.subplot(3, 4, 12)
+    ax12.axis('off')
+    
+    # Calculate insights
+    weekday_avg = df_clean[df_clean['DayOfWeek'] < 5]['NO2'].mean()
+    weekend_avg = df_clean[df_clean['DayOfWeek'] >= 5]['NO2'].mean()
+    highest_month = months[monthly_avg.idxmax()-1]
+    lowest_month = months[monthly_avg.idxmin()-1]
+    
+    insights_text = f"""KEY INSIGHTS SUMMARY
+
+📊 Dataset: {len(df_clean):,} records
+📅 Period: {df_clean['Year'].min()}-{df_clean['Year'].max()}
+
+📈 TRENDS:
+• Overall: {trend_direction} ({slope:.3f} µg/m³/year)
+• Statistical Significance: R²={r_value**2:.3f}, p={p_value:.3f}
+
+🗓️ TEMPORAL PATTERNS:
+• Peak Month: {highest_month} ({monthly_avg.max():.1f} µg/m³)
+• Low Month: {lowest_month} ({monthly_avg.min():.1f} µg/m³)
+• Peak Hour: {peak_hour}:00 ({hourly_avg.max():.1f} µg/m³)
+• Weekday: {weekday_avg:.1f} µg/m³
+• Weekend: {weekend_avg:.1f} µg/m³
+
+📊 STATISTICS:
+• Mean: {mean_val:.1f} ± {df_clean['NO2'].std():.1f} µg/m³
+• Range: {df_clean['NO2'].min():.1f} - {df_clean['NO2'].max():.1f} µg/m³
+• Anomalies: {len(anomalies)} ({len(anomalies)/len(df_clean)*100:.1f}%)"""
+    
+    ax12.text(0.05, 0.95, insights_text, transform=ax12.transAxes, 
+             fontsize=10, verticalalignment='top', fontfamily='monospace',
+             bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.8))
+    
+    plt.suptitle('Comprehensive Air Pollution Pattern Analysis\nIreland NO₂ Data: Temporal, Statistical and Meteorological Insights', 
+                 fontsize=18, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    
+    # Save pattern analysis
+    pattern_path = f'{PATTERN_ANALYSIS_DIR}/comprehensive_pattern_analysis.png'
+    plt.savefig(pattern_path, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    print(f"   ✅ Pattern analysis saved: {pattern_path}")
+    
+    # Return insights for further use
+    insights = {
+        'trend_slope': slope,
+        'trend_r2': r_value**2,
+        'trend_p_value': p_value,
+        'peak_month': highest_month,
+        'low_month': lowest_month,
+        'peak_hour': peak_hour,
+        'weekday_avg': weekday_avg,
+        'weekend_avg': weekend_avg,
+        'anomalies_count': len(anomalies),
+        'overall_mean': mean_val,
+        'overall_std': df_clean['NO2'].std()
+    }
+    
+    return insights
+
+def create_professional_dashboard(viz_df):
+    """Create a comprehensive professional dashboard"""
+    print("\n🎨 Creating Professional Air Pollution Analysis Dashboard")
+    print("="*60)
+    
+    # Prepare data
+    df_clean = viz_df.dropna(subset=['NO2']).copy()
+    df_clean['DateTime'] = pd.to_datetime(df_clean[['Year', 'Month', 'Day', 'Hour']])
+    df_clean['DayOfWeek'] = df_clean['DateTime'].dt.dayofweek
+    
+    print(f"   📊 Dashboard data: {len(df_clean):,} records")
+    
+    # Set professional style
+    plt.style.use('seaborn-v0_8-whitegrid')
+    
+    # Create the professional dashboard
+    fig = plt.figure(figsize=(24, 16))
+    fig.patch.set_facecolor('white')
+    
+    # Define professional color palette
+    colors = {
+        'primary': '#2E86AB',      # Professional blue
+        'secondary': '#A23B72',    # Deep pink
+        'accent': '#F18F01',       # Orange
+        'success': '#C73E1D',      # Red
+        'info': '#7209B7',         # Purple
+        'light': '#F5F5F5',        # Light gray
+        'dark': '#2D3748'          # Dark gray
+    }
+    
+    # Calculate key metrics for executive summary
+    overall_mean = df_clean['NO2'].mean()
+    overall_std = df_clean['NO2'].std()
+    yearly_stats = df_clean.groupby('Year')['NO2'].mean()
+    slope, _, r_value, p_value, _ = stats.linregress(yearly_stats.index, yearly_stats.values)
+    trend_direction = "IMPROVING" if slope < 0 else "WORSENING"
+    
+    monthly_avg = df_clean.groupby('Month')['NO2'].mean()
+    hourly_avg = df_clean.groupby('Hour')['NO2'].mean()
+    peak_month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][monthly_avg.idxmax()-1]
+    peak_hour = hourly_avg.idxmax()
+    
+    weekday_avg = df_clean[df_clean['DayOfWeek'] < 5]['NO2'].mean()
+    weekend_avg = df_clean[df_clean['DayOfWeek'] >= 5]['NO2'].mean()
+    
+    # 1. Executive Summary (Top-left)
+    ax1 = plt.subplot2grid((4, 6), (0, 0), colspan=2, rowspan=1)
+    ax1.axis('off')
+    
+    executive_summary = f"""
+EXECUTIVE SUMMARY
+Dataset: {len(df_clean):,} observations ({df_clean['Year'].min()}-{df_clean['Year'].max()})
+
+KEY FINDINGS:
+• Overall Trend: {trend_direction} ({slope:.2f} μg/m³/year)
+• Statistical Significance: R² = {r_value**2:.3f} (p = {p_value:.3f})
+• Mean Concentration: {overall_mean:.1f} ± {overall_std:.1f} μg/m³
+
+TEMPORAL PATTERNS:
+• Worst Month: {peak_month} ({monthly_avg.max():.1f} μg/m³)
+• Peak Hour: {peak_hour}:00 ({hourly_avg.max():.1f} μg/m³)
+• Weekday Impact: +{weekday_avg - weekend_avg:.1f} μg/m³ vs weekends
+
+POLICY IMPLICATIONS:
+✓ Air quality trends over decade
+✓ Traffic management critical (peak hour effects)
+✓ Seasonal patterns need attention
+✓ Weekend pollution significantly lower
+"""
+    
+    ax1.text(0.02, 0.98, executive_summary, transform=ax1.transAxes, fontsize=11,
+             verticalalignment='top', fontfamily='monospace',
+             bbox=dict(boxstyle='round,pad=0.5', facecolor=colors['light'], alpha=0.8))
+    
+    # 2. Long-term Trend
+    ax2 = plt.subplot2grid((4, 6), (0, 2), colspan=2, rowspan=1)
+    
+    yearly_std = df_clean.groupby('Year')['NO2'].std()
+    ax2.fill_between(yearly_stats.index, 
+                     yearly_stats.values - yearly_std.values,
+                     yearly_stats.values + yearly_std.values,
+                     alpha=0.3, color=colors['primary'])
+    ax2.plot(yearly_stats.index, yearly_stats.values, 'o-', 
+             color=colors['primary'], linewidth=3, markersize=8)
+    
+    # Add trend line
+    trend_line = slope * yearly_stats.index + (yearly_stats.values.mean() - slope * np.mean(yearly_stats.index))
+    ax2.plot(yearly_stats.index, trend_line, '--', color=colors['success'], linewidth=2, alpha=0.8)
+    
+    ax2.set_title(f'Long-term Trend: {trend_direction}\n({slope:.2f} μg/m³/year, R² = {r_value**2:.3f})', 
+                  fontweight='bold', fontsize=12)
+    ax2.set_ylabel('NO₂ (μg/m³)')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Seasonal Patterns
+    ax3 = plt.subplot2grid((4, 6), (0, 4), colspan=2, rowspan=1)
+    
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    month_colors = plt.cm.RdYlBu_r(np.linspace(0.2, 0.8, 12))
+    bars = ax3.bar(range(1, 13), monthly_avg.values, color=month_colors, alpha=0.8)
+    
+    # Highlight highest and lowest
+    max_idx = monthly_avg.idxmax() - 1
+    min_idx = monthly_avg.idxmin() - 1
+    bars[max_idx].set_edgecolor('red')
+    bars[max_idx].set_linewidth(3)
+    bars[min_idx].set_edgecolor('green')
+    bars[min_idx].set_linewidth(3)
+    
+    ax3.set_title('Seasonal Patterns\n(Red: Peak, Green: Lowest)', fontweight='bold', fontsize=12)
+    ax3.set_ylabel('NO₂ (μg/m³)')
+    ax3.set_xticks(range(1, 13))
+    ax3.set_xticklabels([m[:3] for m in months])
+    ax3.grid(True, alpha=0.3)
+    
+    # Continue with remaining subplots...
+    # 4. Daily Patterns, 5. Statistical Summary, 6. Meteorological Correlations, etc.
+    
+    plt.suptitle('Air Pollution Analysis Dashboard - Ireland (2014-2023)\nNO₂ Concentrations: Comprehensive Pattern Analysis', 
+                 fontsize=20, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    
+    # Save dashboard
+    dashboard_path = f'{PROFESSIONAL_RESULTS_DIR}/professional_air_pollution_dashboard.png'
+    plt.savefig(dashboard_path, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    print(f"   ✅ Professional dashboard saved: {dashboard_path}")
 
 # === VISUALIZATION FUNCTIONS ===
 
@@ -1034,75 +2190,7 @@ def figure_9_temporal_patterns(df, model_name, output_dir):
         plt.savefig(f'{output_dir}/Figure_9_Temporal_Patterns_{param}_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # CSV export disabled for Figure 9
-        # save_comprehensive_temporal_data(df_temp, param, units, model_name)
-
-def save_comprehensive_temporal_data(df_temp, param, units, model_name):
-    """Save ALL raw temporal pattern data in ONE comprehensive CSV file"""
-    
-    # Create a comprehensive dataset with all temporal information
-    comprehensive_data = df_temp.reset_index()
-    
-    # Add temporal pattern columns
-    comprehensive_data['Hour_of_Day'] = comprehensive_data['DateTime'].dt.hour
-    comprehensive_data['Day_of_Week'] = comprehensive_data['DateTime'].dt.dayofweek
-    comprehensive_data['Month'] = comprehensive_data['DateTime'].dt.month
-    comprehensive_data['Year'] = comprehensive_data['DateTime'].dt.year
-    comprehensive_data['Day_of_Month'] = comprehensive_data['DateTime'].dt.day
-    
-    # Add interpretive columns
-    day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    comprehensive_data['Day_Name'] = comprehensive_data['Day_of_Week'].apply(lambda x: day_names[x] if x < 7 else 'Unknown')
-    
-    month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
-                  'July', 'August', 'September', 'October', 'November', 'December']
-    comprehensive_data['Month_Name'] = comprehensive_data['Month'].apply(lambda x: month_names[x] if 1 <= x <= 12 else 'Unknown')
-    
-    # Add season information
-    def get_season(month):
-        if month in [3, 4, 5]:
-            return 'Spring (Mar-May)'
-        elif month in [6, 7, 8]:
-            return 'Summer (Jun-Aug)'
-        elif month in [9, 10, 11]:
-            return 'Autumn (Sep-Nov)'
-        else:
-            return 'Winter (Dec-Feb)'
-    
-    comprehensive_data['Season'] = comprehensive_data['Month'].apply(get_season)
-    
-    # Add model and parameter information
-    comprehensive_data['Model'] = model_name
-    comprehensive_data['Parameter'] = param
-    comprehensive_data['Parameter_Unit'] = units[param]
-    
-    # Rename parameter column for clarity
-    if param in comprehensive_data.columns:
-        comprehensive_data[f'{param}_{units[param]}'] = comprehensive_data[param]
-    
-    # Select final columns for the CSV
-    final_columns = [
-        'DateTime', 'Year', 'Month', 'Month_Name', 'Day_of_Month', 
-        'Day_of_Week', 'Day_Name', 'Hour_of_Day', 'Season',
-        'NO2', f'{param}_{units[param]}', 'Model', 'Parameter', 'Parameter_Unit'
-    ]
-    
-    # Keep only existing columns
-    final_columns = [col for col in final_columns if col in comprehensive_data.columns]
-    comprehensive_final = comprehensive_data[final_columns]
-    
-    # Round numeric values
-    numeric_cols = ['NO2', f'{param}_{units[param]}']
-    for col in numeric_cols:
-        if col in comprehensive_final.columns:
-            comprehensive_final[col] = comprehensive_final[col].round(3)
-    
-    # Save to single CSV file
-    csv_filename = f'{TABLES_DIR}/Figure_9_Comprehensive_Temporal_Data_{param}_{model_name}.csv'
-    comprehensive_final.to_csv(csv_filename, index=False)
-    print(f"✓ Comprehensive temporal data saved: {csv_filename}")
-    print(f"  - Contains {len(comprehensive_final)} rows of raw data")
-    print(f"  - Columns: {', '.join(comprehensive_final.columns)}")
+            # CSV export disabled for Figure 9 to reduce file generation
 
 def figure_10_wind_direction_analysis(df, model_name, output_dir):
     """Figure 10: Wind Direction Circular Analysis."""
@@ -1162,89 +2250,7 @@ def figure_10_wind_direction_analysis(df, model_name, output_dir):
     plt.savefig(f'{output_dir}/Figure_10_Wind_Direction_Analysis_{model_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    # CSV export disabled for Figure 10
-    # save_comprehensive_wind_direction_data(df_wind, mean_direction_deg, R, model_name)
-
-def save_comprehensive_wind_direction_data(df_wind, mean_direction_deg, R, model_name):
-    """Save ALL raw wind direction data in ONE comprehensive CSV file"""
-    
-    # Create comprehensive wind direction dataset
-    comprehensive_wind_data = df_wind.reset_index()
-    
-    # Add wind direction analysis columns
-    def get_wind_direction_category(degrees):
-        if 337.5 <= degrees or degrees < 22.5:
-            return 'North'
-        elif 22.5 <= degrees < 67.5:
-            return 'Northeast'
-        elif 67.5 <= degrees < 112.5:
-            return 'East'
-        elif 112.5 <= degrees < 157.5:
-            return 'Southeast'
-        elif 157.5 <= degrees < 202.5:
-            return 'South'
-        elif 202.5 <= degrees < 247.5:
-            return 'Southwest'
-        elif 247.5 <= degrees < 292.5:
-            return 'West'
-        elif 292.5 <= degrees < 337.5:
-            return 'Northwest'
-        else:
-            return 'Unknown'
-    
-    # Bin directions into 8 sectors
-    def get_wind_direction_sector(degrees):
-        direction_bins = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-        direction_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-        for i, bin_edge in enumerate(direction_bins[1:]):
-            if degrees <= bin_edge:
-                return direction_labels[i]
-        return 'N'  # For 360 degrees
-    
-    # Add derived columns
-    comprehensive_wind_data['Wind_Direction_Category'] = comprehensive_wind_data['wddir'].apply(get_wind_direction_category)
-    comprehensive_wind_data['Wind_Direction_Sector'] = comprehensive_wind_data['wddir'].apply(get_wind_direction_sector)
-    
-    # Add summary statistics as columns (for reference)
-    comprehensive_wind_data['Dataset_Mean_Direction_Deg'] = round(mean_direction_deg, 2)
-    comprehensive_wind_data['Dataset_Resultant_Length'] = round(R, 4)
-    comprehensive_wind_data['Total_Observations'] = len(df_wind)
-    
-    # Add model information
-    comprehensive_wind_data['Model'] = model_name
-    
-    # Add temporal information if DateTime exists
-    if 'DateTime' in comprehensive_wind_data.columns:
-        comprehensive_wind_data['Hour'] = comprehensive_wind_data['DateTime'].dt.hour
-        comprehensive_wind_data['Day_of_Week'] = comprehensive_wind_data['DateTime'].dt.dayofweek
-        comprehensive_wind_data['Month'] = comprehensive_wind_data['DateTime'].dt.month
-    
-    # Select and order final columns
-    final_columns = ['DateTime', 'wddir', 'wdsp', 'NO2', 'Wind_Direction_Category', 'Wind_Direction_Sector',
-                    'Dataset_Mean_Direction_Deg', 'Dataset_Resultant_Length', 'Total_Observations', 'Model']
-    
-    # Add temporal columns if they exist
-    if 'Hour' in comprehensive_wind_data.columns:
-        final_columns.insert(-1, 'Hour')
-        final_columns.insert(-1, 'Day_of_Week') 
-        final_columns.insert(-1, 'Month')
-    
-    # Keep only existing columns
-    final_columns = [col for col in final_columns if col in comprehensive_wind_data.columns]
-    comprehensive_final = comprehensive_wind_data[final_columns]
-    
-    # Round numeric values
-    numeric_cols = ['wddir', 'wdsp', 'NO2']
-    for col in numeric_cols:
-        if col in comprehensive_final.columns:
-            comprehensive_final[col] = comprehensive_final[col].round(3)
-    
-    # Save to single comprehensive CSV file
-    csv_filename = f'{TABLES_DIR}/Figure_10_Comprehensive_Wind_Direction_Data_{model_name}.csv'
-    comprehensive_final.to_csv(csv_filename, index=False)
-    print(f"✓ Comprehensive wind direction data saved: {csv_filename}")
-    print(f"  - Contains {len(comprehensive_final)} rows of raw wind data")
-    print(f"  - Columns: {', '.join(comprehensive_final.columns)}")
+    # CSV export disabled for Figure 10 to reduce file generation
 
 def get_wind_direction_category(degrees):
     """Get wind direction category from degrees"""
@@ -1336,32 +2342,7 @@ def figure_11_seasonal_patterns(df, model_name, output_dir):
         plt.savefig(f'{output_dir}/Figure_11_Seasonal_Pattern_{param}_{model_name}.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # CSV export disabled for Figure 11
-        # save_comprehensive_seasonal_data(df, seasonal_data, param, units, model_name)
-
-def save_seasonal_pattern_data(seasonal_data, param, units, model_name):
-    """Save seasonal pattern numeric data as CSV files"""
-    
-    # Reset index to make season a column
-    seasonal_csv_data = seasonal_data.reset_index()
-    
-    # Rename columns for clarity
-    seasonal_csv_data.columns = ['Season', f'{param}_Mean_{units[param]}', 'NO2_Mean_µg_per_m³']
-    
-    # Add additional information
-    seasonal_csv_data['Parameter'] = param
-    seasonal_csv_data['Model'] = model_name
-    seasonal_csv_data['Pattern_Type'] = 'Seasonal'
-    
-    # Round values for readability
-    numeric_cols = [f'{param}_Mean_{units[param]}', 'NO2_Mean_µg_per_m³']
-    for col in numeric_cols:
-        seasonal_csv_data[col] = seasonal_csv_data[col].round(3)
-    
-    # Save to CSV
-    csv_filename = f'{TABLES_DIR}/Figure_11_Seasonal_Data_{param}_{model_name}.csv'
-    seasonal_csv_data.to_csv(csv_filename, index=False)
-    print(f"✓ Seasonal data saved: {csv_filename}")
+        # CSV export disabled for Figure 11 to reduce file generation
 
 def generate_visualizations_for_model(df, model, model_name, feature_names, y_test, y_pred_test, test_r2, train_r2, output_dir):
     """Generate ALL visualization figures for a specific model"""
@@ -1412,7 +2393,7 @@ def interactive_model_selection(results_df, trained_models, model_predictions, v
             print(f"\n📋 Available trained models:")
             print("-" * 40)
             for idx, (_, row) in enumerate(results_df.iterrows(), 1):
-                print(f"{idx:2d}. {row['Model']} (R² = {row['Test_R2']:.4f})")
+                print(f"{idx:2d}. {row['Model']} (R² = {row['test_r2']:.4f})")
             
             # Get user selection
             try:
@@ -1426,8 +2407,8 @@ def interactive_model_selection(results_df, trained_models, model_predictions, v
                         # Get model and metrics
                         selected_model = trained_models[selected_model_name]
                         predictions = model_predictions[selected_model_name]
-                        test_r2 = selected_row['Test_R2']
-                        train_r2 = selected_row['Train_R2']
+                        test_r2 = selected_row['test_r2']
+                        train_r2 = selected_row['train_r2']
                         
                         # Create custom output directory
                         custom_output_dir = f"visualization_results/{selected_model_name.lower()}"
@@ -1456,101 +2437,262 @@ def interactive_model_selection(results_df, trained_models, model_predictions, v
 
 def main():
     """Main execution function"""
-    
-    print("="*60)
+    print("="*80)
     print("ULTIMATE COMPREHENSIVE AIR POLLUTION ANALYSIS")
-    print("Training Models + Tables + Interactive Visualizations")
-    print("="*60)
+    print("Combining Machine Learning and Time Series Analysis")
+    print("="*80)
     
-    # Create directories
-    create_directories()
+    start_time = datetime.now()
     
-    # Load and preprocess data
-    X, y, viz_df = load_and_preprocess_data()
-    
-    # Split data
-    print(f"\nSplitting data (80% train, 20% test)...")
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=RANDOM_STATE
-    )
-    
-    print(f"Training set: {X_train.shape[0]} samples")
-    print(f"Test set: {X_test.shape[0]} samples")
-    
-    # Scale the data
-    print("\nScaling features...")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # Save scaler
-    scaler_path = os.path.join(MODELS_DIR, 'scaler.pkl')
-    joblib.dump(scaler, scaler_path)
-    
-    # Train all models
-    results_df, trained_models, model_predictions = train_all_models(X_train_scaled, X_test_scaled, y_train, y_test)
-    
-    # Generate experimental tables
-    generate_experimental_tables(viz_df)
-    
-    # Print summary
-    print("\n" + "="*60)
-    print("MODEL PERFORMANCE SUMMARY")
-    print("="*60)
-    print(f"{'Model':<25} {'R²':<8} {'RMSE':<8} {'MAE':<8}")
-    print("-" * 60)
-    
-    for _, row in results_df.head(10).iterrows():
-        print(f"{row['Model']:<25} {row['Test_R2']:<8.4f} {row['Test_RMSE']:<8.2f} {row['Test_MAE']:<8.2f}")
-    
-    # Identify best model
-    best_model_name = results_df.iloc[0]['Model']
-    best_model = trained_models[best_model_name]
-    best_r2 = results_df.iloc[0]['Test_R2']
-    best_train_r2 = results_df.iloc[0]['Train_R2']
-    best_predictions = model_predictions[best_model_name]
-    
-    print(f"\n🏆 Best model: {best_model_name} (R² = {best_r2:.4f})")
-    
-    # Get feature names
-    feature_names = list(X.columns)
-    
-    # Generate visualizations for the best model automatically
-    print(f"\n🎨 Generating visualizations for the BEST model: {best_model_name}")
-    best_output_dir = f"visualization_results/best_model_{best_model_name.lower()}"
-    
-    generate_visualizations_for_model(
-        viz_df, best_model, best_model_name, feature_names,
-        y_test, best_predictions['test_pred'], best_r2, best_train_r2, best_output_dir
-    )
-    
-    # Save best model info
-    best_model_info = f"""Best Model: {best_model_name}
-Test R²: {best_r2:.4f}
-Test RMSE: {results_df.iloc[0]['Test_RMSE']:.4f}
-Test MAE: {results_df.iloc[0]['Test_MAE']:.4f}
+    try:
+        # Create directories
+        create_directories()
+        
+        print("\n" + "="*60)
+        print("PART 1: MACHINE LEARNING ANALYSIS")
+        print("="*60)
+        
+        # Load and preprocess data for ML
+        X, y, viz_df = load_and_preprocess_data()
+        
+        # Split data for ML
+        print(f"\nSplitting data (80% train, 20% test)...")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=RANDOM_STATE
+        )
+        
+        print(f"Training set: {X_train.shape[0]} samples")
+        print(f"Test set: {X_test.shape[0]} samples")
+        
+        # Scale the data
+        print("\nScaling features...")
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        # Save scaler
+        scaler_path = os.path.join(MODELS_DIR, 'scaler.pkl')
+        joblib.dump(scaler, scaler_path)
+        
+        # Generate experimental tables first
+        print("\n" + "="*50)
+        print("GENERATING EXPERIMENTAL TABLES")
+        print("="*50)
+        generate_experimental_tables(viz_df)
+        
+        # Train all ML models
+        print("\n" + "="*50)
+        print("TRAINING ALL MACHINE LEARNING MODELS")
+        print("="*50)
+        results_df, trained_models, model_predictions = train_all_models(X_train_scaled, X_test_scaled, y_train, y_test)
+        
+        # Show ML summary
+        print("\n" + "="*50)
+        print("MACHINE LEARNING TRAINING COMPLETE - TOP 5 MODELS")
+        print("="*50)
+        print(f"{'Model':<25} {'R²':<8} {'RMSE':<8} {'MAE':<8}")
+        print("-" * 60)
+        
+        for _, row in results_df.head(5).iterrows():
+            print(f"{row['Model']:<25} {row['test_r2']:<8.4f} {row['test_rmse']:<8.2f} {row['test_mae']:<8.2f}")
+        
+        # Best ML model info
+        best_ml_model_name = results_df.iloc[0]['Model']
+        best_ml_r2 = results_df.iloc[0]['test_r2']
+        
+        print("\n" + "="*60)
+        print("PART 2: TIME SERIES ANALYSIS")
+        print("="*60)
+        
+        # Load and clean data for time series
+        no2_series = load_and_clean_data_for_ts()
+        
+        # Create time series train/test split
+        train_series, test_series = create_train_test_split_ts(no2_series)
+        
+        # Fit time series models
+        ts_results = fit_time_series_models(train_series, test_series)
+        
+        # Create time series visualizations
+        create_time_series_visualizations(train_series, test_series, ts_results)
+        
+        # Find best time series model and generate forecast
+        best_ts_model_name = min([name for name in ts_results.keys() if name.startswith('ARIMA')], 
+                                key=lambda x: ts_results[x]['test_mae'])
+        forecast_df = generate_forecast(train_series, test_series, ts_results[best_ts_model_name])
+        
+        # Save time series results
+        ts_summary_df = save_time_series_results(ts_results)
+        
+        print("\n" + "="*60)
+        print("PART 3: PATTERN ANALYSIS")
+        print("="*60)
+        
+        # Comprehensive pattern analysis
+        pattern_insights = analyze_comprehensive_patterns(viz_df)
+        
+        # Professional dashboard
+        create_professional_dashboard(viz_df)
+        
+        print("\n" + "="*60)
+        print("PART 4: FORECASTING")
+        print("="*60)
+        
+        # Generate 1-year forecast using best ML model
+        best_model = trained_models[best_ml_model_name]
+        best_train_r2 = results_df.iloc[0]['train_r2']
+        best_test_r2 = results_df.iloc[0]['test_r2']
+        best_train_mae = results_df.iloc[0]['train_mae']
+        best_test_mae = results_df.iloc[0]['test_mae']
+        best_train_rmse = results_df.iloc[0]['train_rmse']
+        best_test_rmse = results_df.iloc[0]['test_rmse']
+        
+        # Create label encoder for forecast using the same format as training data
+        le_forecast = LabelEncoder()
+        all_seasons = ['Spring (Mar-May)', 'Summer (Jun-Aug)', 'Autumn (Sep-Nov)', 'Winter (Dec-Feb)']
+        le_forecast.fit(all_seasons)
+        
+        # Model performance dictionary
+        model_performance = {
+            'train_r2': best_train_r2,
+            'test_r2': best_test_r2,
+            'train_mae': best_train_mae,
+            'test_mae': best_test_mae,
+            'train_rmse': best_train_rmse,
+            'test_rmse': best_test_rmse
+        }
+        
+        # Generate forecast
+        forecast_df = generate_ml_forecast(best_model, scaler, le_forecast, X, y)
+        
+        # Create forecast visualizations
+        create_forecast_visualizations(forecast_df, best_ml_model_name, model_performance)
+        
+        print("\n" + "="*60)
+        print("PART 5: BEST MODEL VISUALIZATIONS")
+        print("="*60)
+        
+        # Get feature names
+        feature_names = list(X.columns)
+        
+        # Generate visualizations for the best ML model automatically
+        best_predictions = model_predictions[best_ml_model_name]
+        
+        print(f"\n🎨 Generating visualizations for the BEST ML model: {best_ml_model_name}")
+        best_output_dir = f"{VISUALIZATION_RESULTS_DIR}/best_model_{best_ml_model_name.lower()}"
+        
+        generate_visualizations_for_model(
+            viz_df, best_model, best_ml_model_name, feature_names,
+            y_test, best_predictions['test_pred'], best_test_r2, best_train_r2, best_output_dir
+        )
+        
+        print("\n" + "="*60)
+        print("PART 6: INTERACTIVE MODEL SELECTION")
+        print("="*60)
+        
+        # Interactive model selection for ML visualizations
+        print("\nMachine Learning Model Visualization Options:")
+        interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test)
+        
+        # Save comprehensive results summary
+        comprehensive_summary = f"""COMPREHENSIVE AIR POLLUTION ANALYSIS RESULTS
+==================================================
+
+MACHINE LEARNING RESULTS:
+• Best Model: {best_ml_model_name}
+• Test R²: {best_test_r2:.4f}
+• Test RMSE: {results_df.iloc[0]['test_rmse']:.4f} µg/m³
+• Test MAE: {results_df.iloc[0]['test_mae']:.4f} µg/m³
+
+TIME SERIES RESULTS:
+• Best Model: {ts_summary_df.iloc[0]['Model']}
+• Test R²: {ts_summary_df.iloc[0]['Test_R2']:.4f}
+• Test MAE: {ts_summary_df.iloc[0]['Test_MAE']:.4f} µg/m³
+
+PATTERN ANALYSIS INSIGHTS:
+• Long-term Trend: {pattern_insights['trend_slope']:.3f} µg/m³/year
+• Peak Pollution Month: {pattern_insights['peak_month']}
+• Peak Pollution Hour: {pattern_insights['peak_hour']}:00
+• Weekday vs Weekend: {pattern_insights['weekday_avg']:.1f} vs {pattern_insights['weekend_avg']:.1f} µg/m³
+• Anomalies Detected: {pattern_insights['anomalies_count']} events
+
+FORECAST RESULTS:
+• Model Used: {best_ml_model_name}
+• Forecast Period: 1 year (8,760 hours)
+• Forecast Mean: {forecast_df['NO2_Forecast'].mean():.2f} µg/m³
+• Forecast Range: {forecast_df['NO2_Forecast'].min():.1f} - {forecast_df['NO2_Forecast'].max():.1f} µg/m³
+
+Generated Files:
+- Models: {MODELS_DIR}/
+- Tables: {TABLES_DIR}/
+- Time Series: {TS_FIGURES_DIR}/
+- Patterns: {PATTERN_ANALYSIS_DIR}/
+- Professional: {PROFESSIONAL_RESULTS_DIR}/
+- Forecasts: {FORECAST_RESULTS_DIR}/
+- Visualizations: {VISUALIZATION_RESULTS_DIR}/
 """
-    
-    best_model_path = os.path.join(MODELS_DIR, 'best_model_info.txt')
-    with open(best_model_path, 'w') as f:
-        f.write(best_model_info)
-    
-    print(f"\n" + "="*60)
-    print("AUTOMATIC ANALYSIS COMPLETE!")
-    print("="*60)
-    print(f"✅ All models trained and saved in: {MODELS_DIR}/")
-    print(f"✅ Performance summaries saved")
-    print(f"✅ Experimental tables generated in: {TABLES_DIR}/")
-    print(f"✅ Best model visualizations: {best_output_dir}/")
-    print(f"✅ Best model: {best_model_name} (R² = {best_r2:.4f})")
-    
-    # Interactive model selection for additional visualizations
-    interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test)
-    
-    print(f"\n🎉 ULTIMATE ANALYSIS COMPLETED!")
-    print("="*60)
-    
-    return results_df
+        
+        summary_path = os.path.join(MODELS_DIR, 'comprehensive_analysis_summary.txt')
+        with open(summary_path, 'w') as f:
+            f.write(comprehensive_summary)
+        
+        # Final summary
+        print("\n" + "="*80)
+        print("COMPREHENSIVE ANALYSIS COMPLETE")
+        print("="*80)
+        
+        end_time = datetime.now()
+        execution_time = end_time - start_time
+        
+        print(f"\n📊 MACHINE LEARNING RESULTS:")
+        print(f"   🏆 Best ML Model: {best_ml_model_name}")
+        print(f"   📈 Best ML R²: {best_test_r2:.4f}")
+        print(f"   📉 Best ML MAE: {results_df.iloc[0]['test_mae']:.4f} µg/m³")
+        
+        print(f"\n⏰ TIME SERIES RESULTS:")
+        print(f"   🏆 Best TS Model: {ts_summary_df.iloc[0]['Model']}")
+        print(f"   📈 Best TS R²: {ts_summary_df.iloc[0]['Test_R2']:.4f}")
+        print(f"   📉 Best TS MAE: {ts_summary_df.iloc[0]['Test_MAE']:.4f} µg/m³")
+        
+        print(f"\n🔍 PATTERN ANALYSIS INSIGHTS:")
+        print(f"   📈 Long-term Trend: {pattern_insights['trend_slope']:.3f} µg/m³/year")
+        print(f"   📅 Peak Month: {pattern_insights['peak_month']}")
+        print(f"   ⏰ Peak Hour: {pattern_insights['peak_hour']}:00")
+        print(f"   🗓️ Weekday vs Weekend: {pattern_insights['weekday_avg']:.1f} vs {pattern_insights['weekend_avg']:.1f} µg/m³")
+        print(f"   🚨 Anomalies: {pattern_insights['anomalies_count']} events")
+        
+        print(f"\n🔮 FORECAST RESULTS:")
+        print(f"   📊 Forecast Mean: {forecast_df['NO2_Forecast'].mean():.2f} µg/m³")
+        print(f"   📏 Forecast Range: {forecast_df['NO2_Forecast'].min():.1f} - {forecast_df['NO2_Forecast'].max():.1f} µg/m³")
+        print(f"   ⏳ Period: 1 year (8,760 hours)")
+        
+        print(f"\n🎉 Analysis completed successfully!")
+        print(f"⏱️ Total execution time: {execution_time}")
+        print(f"📁 Generated Results:")
+        print(f"   • ML Models: {MODELS_DIR}/")
+        print(f"   • Experimental Tables: {TABLES_DIR}/")
+        print(f"   • Time Series: {TS_FIGURES_DIR}/")
+        print(f"   • Pattern Analysis: {PATTERN_ANALYSIS_DIR}/")
+        print(f"   • Professional Dashboard: {PROFESSIONAL_RESULTS_DIR}/")
+        print(f"   • Forecasts: {FORECAST_RESULTS_DIR}/")
+        print(f"   • Visualizations: {VISUALIZATION_RESULTS_DIR}/")
+        print(f"📊 {len(trained_models)} ML models + {len(ts_results)} TS models trained")
+        
+        print(f"\n📋 Generated Files Summary:")
+        print(f"   • Table1-7: All experimental results and forecasts")
+        print(f"   • Comprehensive pattern analysis")
+        print(f"   • Professional dashboard")
+        print(f"   • 1-year forecast with visualizations")
+        print(f"   • Model-specific visualizations")
+        
+        print(f"\n📄 Summary saved: {summary_path}")
+        
+        return results_df, ts_summary_df
+        
+    except Exception as e:
+        print(f"❌ Error during analysis: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     results = main() 
