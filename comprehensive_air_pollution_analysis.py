@@ -91,9 +91,26 @@ TOTAL ANALYSIS COMPONENTS:
 Run this script to execute the complete comprehensive analysis!
 """
 
+import os
+# Optional: Reduce TensorFlow log spam
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+# TensorFlow GPU setup
+import tensorflow as tf
+try:
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        print(f"GPUs detected: {[gpu.name for gpu in gpus]}")
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    else:
+        print("No GPU detected, running on CPU.")
+except Exception as e:
+    print(f"Error configuring GPUs: {e}\nFalling back to CPU.")
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import pandas as pd
 import numpy as np
-import os
 import joblib
 import warnings
 import matplotlib.pyplot as plt
@@ -106,6 +123,15 @@ from scipy.stats import gaussian_kde
 from scipy import stats
 import itertools
 from datetime import datetime, timedelta
+from PIL import Image
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.base import BaseEstimator, RegressorMixin
+from scikeras.wrappers import KerasRegressor
 
 # Machine Learning Model imports
 from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet
@@ -795,9 +821,46 @@ def adjusted_r2(r2, n, p):
     """Calculate adjusted R-squared"""
     return 1 - (1 - r2) * (n - 1) / (n - p - 1)
 
+def plot_negative_no2_analysis(df, output_dir='.', show_plot=False):
+    """
+    Plot time series and KDE of negative NO2 values, return threshold (5% quantile)
+    """
+    negative_no2 = df[df['NO2'] < 0]['NO2']
+    if len(negative_no2) == 0:
+        print("No negative NO2 values found for plotting.")
+        return None
+    
+    threshold = np.quantile(negative_no2, 0.05)
+    print(f"Automatically determined threshold (5% quantile) for negative NO2: {threshold:.2f} µg/m³")
+    
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    # Time Series Plot
+    axs[0].plot(negative_no2.index, negative_no2.values, 'r-', marker='o', markersize=2, alpha=0.7)
+    axs[0].set_title('Time Series Plot of Negative NO2 Values')
+    axs[0].set_xlabel('Index')
+    axs[0].set_ylabel('NO2 Concentration (µg/m³)')
+    axs[0].axhline(0, color='black', linestyle='--', linewidth=1)
+    # KDE Plot
+    from scipy.stats import gaussian_kde
+    kde = gaussian_kde(negative_no2)
+    x_range = np.linspace(negative_no2.min(), 0, 1000)
+    density = kde(x_range)
+    axs[1].plot(x_range, density, 'b-', label='KDE of Negative NO2 Values')
+    axs[1].axvline(x=threshold, color='red', linestyle='--', linewidth=2, label=f'Threshold (5% quantile): {threshold:.2f}')
+    axs[1].set_title('KDE of Negative NO2 Values')
+    axs[1].set_xlabel('NO2 Concentration (µg/m³)')
+    axs[1].set_ylabel('Density')
+    axs[1].legend()
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/negative_no2_analysis.png", dpi=200)
+    if show_plot:
+        plt.show()
+    plt.close(fig)
+    return threshold
+
 def load_and_preprocess_data():
     """
-    Load and preprocess data following the exact notebook methodology
+    Load and preprocess data following the exact notebook methodology, with improved negative value handling
     """
     print("Loading dataset...")
     df = pd.read_csv(DATASET_FILE)
@@ -817,8 +880,30 @@ def load_and_preprocess_data():
     # Drop columns as in the original notebook
     columns_to_drop = ['Date', 'rain', 'ind.1', 'ind.2', 'ind.3', 'ind.4', 'wetb', 'vappr', 'ww', 'w', 'sun', 'vis', 'clht']
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
-    
     print(f"Shape after dropping columns: {df.shape}")
+    
+    # --- NEGATIVE NO2 HANDLING WITH THRESHOLD ---
+    initial_rows = len(df)
+    negative_no2 = df[df['NO2'] < 0]
+    negative_no2_count = len(negative_no2)
+    if negative_no2_count > 0:
+        print(f"\n⚠️  WARNING: Found {negative_no2_count} negative NO2 values ({(negative_no2_count/initial_rows)*100:.2f}% of data)")
+        print(f"   Min negative value: {negative_no2['NO2'].min():.2f} µg/m³")
+        print(f"   Max negative value: {negative_no2['NO2'].max():.2f} µg/m³")
+        print(f"   Mean negative value: {negative_no2['NO2'].mean():.2f} µg/m³")
+        # Plot and determine threshold
+        threshold = plot_negative_no2_analysis(df, output_dir=MODELS_DIR)
+        print(f"\n🧹 Cleaning negative NO2 values using threshold: {threshold:.2f} µg/m³")
+        # Remove values below threshold
+        before_removal = len(df)
+        df = df[(df['NO2'] >= threshold)]
+        removed_below_threshold = before_removal - len(df)
+        print(f"   Removed {removed_below_threshold} rows with NO2 < threshold")
+        # Set values between threshold and 0 to zero
+        between_mask = (df['NO2'] < 0) & (df['NO2'] >= threshold)
+        set_to_zero_count = between_mask.sum()
+        df.loc[between_mask, 'NO2'] = 0
+        print(f"   Set {set_to_zero_count} NO2 values between threshold and 0 to zero")
     
     # Handle missing values - drop rows with missing NO2 (target variable)
     initial_rows = len(df)
@@ -826,6 +911,13 @@ def load_and_preprocess_data():
     rows_dropped = initial_rows - len(df)
     print(f"Dropped {rows_dropped} rows with missing NO2 values")
     print(f"Final dataset shape: {df.shape}")
+    
+    # Verify NO2 statistics after cleaning
+    print(f"\n✅ NO2 statistics after cleaning:")
+    print(f"   Min: {df['NO2'].min():.2f} µg/m³")
+    print(f"   Max: {df['NO2'].max():.2f} µg/m³")
+    print(f"   Mean: {df['NO2'].mean():.2f} µg/m³")
+    print(f"   Std: {df['NO2'].std():.2f} µg/m³")
     
     # Separate features and target
     X = df.drop(['NO2'], axis=1)
@@ -846,10 +938,395 @@ def load_and_preprocess_data():
     
     return X, y, viz_df
 
-def create_all_models():
-    """Create all models including base models and hybrid/meta-models"""
+def get_keras_dnn(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(input_dim,)),
+        layers.Dense(256, activation='relu'),
+        layers.Dropout(0.3),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_deep_dnn(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(input_dim,)),
+        layers.Dense(512, activation='relu'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.4),
+        layers.Dense(256, activation='relu'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        layers.Dense(128, activation='relu'),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(32, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_lstm(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(1, input_dim)),
+        layers.LSTM(128, return_sequences=True),
+        layers.Dropout(0.3),
+        layers.LSTM(64),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_gru(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(1, input_dim)),
+        layers.GRU(128, return_sequences=True),
+        layers.Dropout(0.3),
+        layers.GRU(64),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_bidirectional_lstm(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(1, input_dim)),
+        layers.Bidirectional(layers.LSTM(128, return_sequences=True)),
+        layers.Dropout(0.3),
+        layers.Bidirectional(layers.LSTM(64)),
+        layers.Dropout(0.2),
+        layers.Dense(32, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_conv1d(input_dim):
+    model = keras.Sequential([
+        layers.Input(shape=(1, input_dim)),
+        layers.Conv1D(128, kernel_size=1, activation='relu'),
+        layers.MaxPooling1D(pool_size=1),
+        layers.Conv1D(64, kernel_size=1, activation='relu'),
+        layers.GlobalAveragePooling1D(),
+        layers.Dense(32, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_attention_lstm(input_dim):
+    # Simple attention mechanism
+    inputs = layers.Input(shape=(1, input_dim))
+    lstm_out = layers.LSTM(128, return_sequences=True)(inputs)
+    attention = layers.Dense(1, activation='tanh')(lstm_out)
+    attention = layers.Flatten()(attention)
+    attention_weights = layers.Activation('softmax')(attention)
+    attention_weights = layers.RepeatVector(128)(attention_weights)
+    attention_weights = layers.Permute([2, 1])(attention_weights)
+    attended = layers.Multiply()([lstm_out, attention_weights])
+    attended = layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(attended)
+    output = layers.Dense(32, activation='relu')(attended)
+    output = layers.Dropout(0.2)(output)
+    output = layers.Dense(1)(output)
+    model = keras.Model(inputs=inputs, outputs=output)
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_residual_dnn(input_dim):
+    inputs = layers.Input(shape=(input_dim,))
     
-    # Base models
+    # First block
+    x = layers.Dense(256, activation='relu')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.3)(x)
+    
+    # Residual block 1
+    residual = x
+    x = layers.Dense(256, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(256, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Add()([x, residual])
+    
+    # Second block
+    x = layers.Dense(128, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.2)(x)
+    
+    # Residual block 2
+    residual = x
+    x = layers.Dense(128, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.2)(x)
+    x = layers.Dense(128, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Add()([x, residual])
+    
+    x = layers.Dense(64, activation='relu')(x)
+    x = layers.Dense(32, activation='relu')(x)
+    outputs = layers.Dense(1)(x)
+    
+    model = keras.Model(inputs=inputs, outputs=outputs)
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_wide_deep(input_dim):
+    # Wide part (linear)
+    wide_input = layers.Input(shape=(input_dim,))
+    wide_output = layers.Dense(1, activation='linear')(wide_input)
+    
+    # Deep part
+    deep_input = layers.Input(shape=(input_dim,))
+    deep_output = layers.Dense(256, activation='relu')(deep_input)
+    deep_output = layers.BatchNormalization()(deep_output)
+    deep_output = layers.Dropout(0.3)(deep_output)
+    deep_output = layers.Dense(128, activation='relu')(deep_output)
+    deep_output = layers.BatchNormalization()(deep_output)
+    deep_output = layers.Dropout(0.2)(deep_output)
+    deep_output = layers.Dense(64, activation='relu')(deep_output)
+    deep_output = layers.Dense(32, activation='relu')(deep_output)
+    deep_output = layers.Dense(1, activation='linear')(deep_output)
+    
+    # Combine wide and deep
+    combined = layers.Add()([wide_output, deep_output])
+    model = keras.Model(inputs=[wide_input, deep_input], outputs=combined)
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+def get_keras_autoencoder(input_dim):
+    # Encoder
+    inputs = layers.Input(shape=(input_dim,))
+    encoded = layers.Dense(128, activation='relu')(inputs)
+    encoded = layers.Dense(64, activation='relu')(encoded)
+    encoded = layers.Dense(32, activation='relu')(encoded)
+    
+    # Decoder
+    decoded = layers.Dense(64, activation='relu')(encoded)
+    decoded = layers.Dense(128, activation='relu')(decoded)
+    decoded = layers.Dense(input_dim, activation='relu')(decoded)
+    
+    # Add regression head
+    regression_output = layers.Dense(1, name='regression_output')(decoded)
+    
+    model = keras.Model(inputs=inputs, outputs=regression_output)
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+class TorchMLPRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, lr=0.001, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.lr = lr
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        X = torch.tensor(X, dtype=torch.float32)
+        y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = nn.Sequential(
+            nn.Linear(self.input_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        criterion = nn.MSELoss()
+        for epoch in range(self.epochs):
+            permutation = torch.randperm(X.size()[0])
+            for i in range(0, X.size()[0], self.batch_size):
+                indices = permutation[i:i+self.batch_size]
+                batch_x, batch_y = X[indices], y[indices]
+                optimizer.zero_grad()
+                outputs = self.model(batch_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+            if self.verbose and (epoch+1) % 10 == 0:
+                print(f"Epoch {epoch+1}/{self.epochs}, Loss: {loss.item():.4f}")
+        return self
+    def predict(self, X):
+        self.model.eval()
+        X = torch.tensor(X, dtype=torch.float32)
+        with torch.no_grad():
+            preds = self.model(X).numpy().flatten()
+        return preds
+
+class TorchResNetRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, lr=0.001, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.lr = lr
+        self.verbose = verbose
+        self.model = None
+    
+    def fit(self, X, y):
+        X = torch.tensor(X, dtype=torch.float32)
+        y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        
+        # ResNet-like architecture for tabular data
+        class ResBlock(nn.Module):
+            def __init__(self, dim):
+                super().__init__()
+                self.layers = nn.Sequential(
+                    nn.Linear(dim, dim),
+                    nn.ReLU(),
+                    nn.Dropout(0.2),
+                    nn.Linear(dim, dim)
+                )
+            
+            def forward(self, x):
+                return x + self.layers(x)
+        
+        self.model = nn.Sequential(
+            nn.Linear(self.input_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            ResBlock(256),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            ResBlock(128),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+        
+        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        criterion = nn.MSELoss()
+        for epoch in range(self.epochs):
+            permutation = torch.randperm(X.size()[0])
+            for i in range(0, X.size()[0], self.batch_size):
+                indices = permutation[i:i+self.batch_size]
+                batch_x, batch_y = X[indices], y[indices]
+                optimizer.zero_grad()
+                outputs = self.model(batch_x)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+            if self.verbose and (epoch+1) % 10 == 0:
+                print(f"Epoch {epoch+1}/{self.epochs}, Loss: {loss.item():.4f}")
+        return self
+    
+    def predict(self, X):
+        self.model.eval()
+        X = torch.tensor(X, dtype=torch.float32)
+        with torch.no_grad():
+            preds = self.model(X).numpy().flatten()
+        return preds
+
+# Wrapper classes for 3D input models
+class KerasLSTMWrapper(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = get_keras_lstm(self.input_dim)
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        self.model.fit(X_reshaped, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    def predict(self, X):
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        return self.model.predict(X_reshaped, verbose=0).flatten()
+
+class KerasGRUWrapper(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = get_keras_gru(self.input_dim)
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        self.model.fit(X_reshaped, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    def predict(self, X):
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        return self.model.predict(X_reshaped, verbose=0).flatten()
+
+class KerasBiLSTMWrapper(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = get_keras_bidirectional_lstm(self.input_dim)
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        self.model.fit(X_reshaped, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    def predict(self, X):
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        return self.model.predict(X_reshaped, verbose=0).flatten()
+
+class KerasConv1DWrapper(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = get_keras_conv1d(self.input_dim)
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        self.model.fit(X_reshaped, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    def predict(self, X):
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        return self.model.predict(X_reshaped, verbose=0).flatten()
+
+class KerasAttentionLSTMWrapper(BaseEstimator, RegressorMixin):
+    def __init__(self, input_dim=None, epochs=30, batch_size=32, verbose=0):
+        self.input_dim = input_dim
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+        self.model = None
+    def fit(self, X, y):
+        if self.input_dim is None:
+            self.input_dim = X.shape[1]
+        self.model = get_keras_attention_lstm(self.input_dim)
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        self.model.fit(X_reshaped, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    def predict(self, X):
+        X_reshaped = np.asarray(X).reshape(-1, 1, self.input_dim)
+        return self.model.predict(X_reshaped, verbose=0).flatten()
+
+def create_all_models(input_dim):
+    """Create all models including base models, hybrid/meta-models, and deep learning models"""
     base_models = {
         'Linear_Regression': LinearRegression(),
         'Random_Forest': RandomForestRegressor(n_estimators=100, random_state=RANDOM_STATE),
@@ -866,8 +1343,6 @@ def create_all_models():
         'CatBoost': CatBoostRegressor(verbose=False, random_state=RANDOM_STATE, train_dir=None, allow_writing_files=False),
         'LightGBM': LGBMRegressor(random_state=RANDOM_STATE, verbose=-1)
     }
-    
-    # Hybrid/Meta models
     hybrid_models = {
         'Extra_Trees': ExtraTreesRegressor(n_estimators=100, random_state=RANDOM_STATE),
         'Bagging_RF': BaggingRegressor(
@@ -881,10 +1356,7 @@ def create_all_models():
             ('gb', GradientBoostingRegressor(random_state=RANDOM_STATE))
         ])
     }
-    
-    # Combine all models
     all_models = {**base_models, **hybrid_models}
-    
     return all_models
 
 def evaluate_model(model, X_train, X_test, y_train, y_test, model_name):
@@ -927,9 +1399,9 @@ def evaluate_model(model, X_train, X_test, y_train, y_test, model_name):
 
 def train_all_models(X_train, X_test, y_train, y_test):
     """Train all models and return results"""
-    
     print(f"\nTraining and evaluating models...")
-    models = create_all_models()
+    input_dim = X_train.shape[1]
+    models = create_all_models(input_dim)
     results = []
     trained_models = {}
     model_predictions = {}
@@ -2344,15 +2816,56 @@ def figure_11_seasonal_patterns(df, model_name, output_dir):
         
         # CSV export disabled for Figure 11 to reduce file generation
 
+def concatenate_images_vertically(file_list, save_path):
+    if not file_list:
+        print(f"No files found to concatenate for {save_path}")
+        return
+    images = [Image.open(f) for f in file_list]
+    min_width = min(img.width for img in images)
+    resized = [img.resize((min_width, int(img.height * min_width / img.width)), Image.LANCZOS) for img in images]
+    total_height = sum(img.height for img in resized)
+    concatenated = Image.new('RGB', (min_width, total_height))
+    y_offset = 0
+    for img in resized:
+        concatenated.paste(img, (0, y_offset))
+        y_offset += img.height
+    concatenated.save(save_path)
+    print(f"Saved vertically concatenated image to {save_path}")
+
+def concatenate_images_grid_pil(file_list, save_path, cols=2):
+    if not file_list:
+        print(f"No files found to concatenate for {save_path}")
+        return
+    images = [Image.open(f) for f in file_list]
+    min_height = min(img.height for img in images)
+    resized = [img.resize((int(img.width * min_height / img.height), min_height), Image.LANCZOS) for img in images]
+    rows = (len(resized) + cols - 1) // cols
+    row_imgs = []
+    for r in range(rows):
+        imgs_in_row = resized[r*cols:(r+1)*cols]
+        if len(imgs_in_row) < cols:
+            blank = Image.new('RGB', (imgs_in_row[0].width, imgs_in_row[0].height), (255,255,255))
+            imgs_in_row.append(blank)
+        total_width = sum(img.width for img in imgs_in_row)
+        row_img = Image.new('RGB', (total_width, min_height))
+        x_offset = 0
+        for img in imgs_in_row:
+            row_img.paste(img, (x_offset, 0))
+            x_offset += img.width
+        row_imgs.append(row_img)
+    total_height = sum(img.height for img in row_imgs)
+    grid_img = Image.new('RGB', (row_imgs[0].width, total_height))
+    y_offset = 0
+    for img in row_imgs:
+        grid_img.paste(img, (0, y_offset))
+        y_offset += img.height
+    grid_img.save(save_path)
+    print(f"Saved PIL grid to {save_path}")
+
 def generate_visualizations_for_model(df, model, model_name, feature_names, y_test, y_pred_test, test_r2, train_r2, output_dir):
     """Generate ALL visualization figures for a specific model"""
-    
     print(f"\n=== Generating ALL visualizations for {model_name} ===")
-    
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Generate ALL figures (2-11)
     try:
         figure_2_negative_no2_analysis(df, model_name, output_dir)
         figure_3_feature_importance(model, feature_names, model_name, output_dir)
@@ -2364,16 +2877,28 @@ def generate_visualizations_for_model(df, model, model_name, feature_names, y_te
         figure_9_temporal_patterns(df, model_name, output_dir)
         figure_10_wind_direction_analysis(df, model_name, output_dir)
         figure_11_seasonal_patterns(df, model_name, output_dir)
-        
         print(f"✅ ALL 11 figures completed for {model_name}")
         print(f"📁 Saved in: {output_dir}/")
-        
+        # --- Combine and clean up Figure_9 and Figure_11 images ---
+        # Figure_9
+        fig9_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith('Figure_9') and f.endswith('.png')]
+        vertical9_path = os.path.join(output_dir, 'all_figure_9_vertical_concat.png')
+        concatenate_images_vertically(fig9_files, vertical9_path)
+        for f in fig9_files:
+            os.remove(f)
+        # Figure_11
+        fig11_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith('Figure_11') and f.endswith('.png')]
+        pilgrid11_path = os.path.join(output_dir, 'all_figure_11_pil_grid.png')
+        concatenate_images_grid_pil(fig11_files, pilgrid11_path, cols=2)
+        for f in fig11_files:
+            os.remove(f)
+        print(f"✅ Combined and cleaned up Figure_9 and Figure_11 images for {model_name}")
     except Exception as e:
         print(f"❌ Error generating visualizations for {model_name}: {e}")
         import traceback
         traceback.print_exc()
 
-def interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test):
+def interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test, ts_results=None):
     """Interactive model selection for custom visualizations"""
     
     print("\n" + "="*60)
@@ -2389,17 +2914,46 @@ def interactive_model_selection(results_df, trained_models, model_predictions, v
             print("Exiting interactive visualization mode.")
             break
         elif choice in ['yes', 'y']:
-            # Show available models
+            # Show available models by category
             print(f"\n📋 Available trained models:")
+            print("=" * 60)
+            
+            # Machine Learning Models
+            print("\n🤖 MACHINE LEARNING MODELS:")
             print("-" * 40)
+            ml_models = []
             for idx, (_, row) in enumerate(results_df.iterrows(), 1):
-                print(f"{idx:2d}. {row['Model']} (R² = {row['test_r2']:.4f})")
+                model_name = row['Model']
+                if not any(keyword in model_name for keyword in ['Keras', 'Torch', 'LSTM', 'GRU', 'BiLSTM', 'Conv1D', 'Attention', 'Residual', 'Wide_Deep', 'Autoencoder']):
+                    ml_models.append((idx, row))
+                    print(f"{idx:2d}. {model_name} (R² = {row['test_r2']:.4f})")
+            
+            # Deep Learning Models
+            print("\n🧠 DEEP LEARNING MODELS:")
+            print("-" * 40)
+            dl_models = []
+            for idx, (_, row) in enumerate(results_df.iterrows(), 1):
+                model_name = row['Model']
+                if any(keyword in model_name for keyword in ['Keras', 'Torch', 'LSTM', 'GRU', 'BiLSTM', 'Conv1D', 'Attention', 'Residual', 'Wide_Deep', 'Autoencoder']):
+                    dl_models.append((idx, row))
+                    print(f"{idx:2d}. {model_name} (R² = {row['test_r2']:.4f})")
+            
+            # Time Series Models (if available)
+            if ts_results is not None:
+                print("\n⏰ TIME SERIES MODELS:")
+                print("-" * 40)
+                ts_models = []
+                for idx, (model_name, metrics) in enumerate(ts_results.items(), len(results_df) + 1):
+                    ts_models.append((idx, model_name, metrics))
+                    print(f"{idx:2d}. {model_name} (R² = {metrics.get('r2', 'N/A'):.4f})")
             
             # Get user selection
             try:
-                model_choice = int(input(f"\nEnter the number (1-{len(results_df)}) of the model you want to visualize: "))
+                total_models = len(results_df) + (len(ts_results) if ts_results else 0)
+                model_choice = int(input(f"\nEnter the number (1-{total_models}) of the model you want to visualize: "))
                 
                 if 1 <= model_choice <= len(results_df):
+                    # ML or DL model
                     selected_row = results_df.iloc[model_choice - 1]
                     selected_model_name = selected_row['Model']
                     
@@ -2426,6 +2980,351 @@ def interactive_model_selection(results_df, trained_models, model_predictions, v
                         
                     else:
                         print(f"❌ Model {selected_model_name} not found in trained models.")
+                        
+                elif ts_results and len(results_df) < model_choice <= total_models:
+                    # Time Series model
+                    ts_idx = model_choice - len(results_df) - 1
+                    ts_model_names = list(ts_results.keys())
+                    if 0 <= ts_idx < len(ts_model_names):
+                        selected_model_name = ts_model_names[ts_idx]
+                        print(f"\n⏰ Time Series model '{selected_model_name}' selected.")
+                        print("Note: Time series models have different visualization requirements.")
+                        print("Please check the time_series_only/ directory for time series specific visualizations.")
+                    else:
+                        print("❌ Invalid time series model selection.")
+                        
+                else:
+                    print("❌ Invalid selection. Please choose a number from the list.")
+                    
+            except ValueError:
+                print("❌ Invalid input. Please enter a number.")
+                
+        else:
+            print("❌ Invalid choice. Please enter 'yes' or 'no'.")
+
+def generate_dataset_statistics(X, y, viz_df):
+    """
+    Generate comprehensive dataset statistics after preprocessing
+    """
+    print("\n" + "="*60)
+    print("DATASET STATISTICS AFTER PREPROCESSING")
+    print("="*60)
+    
+    # Create statistics dictionary
+    stats = {}
+    
+    # Basic dataset info
+    stats['total_samples'] = len(X)
+    stats['total_features'] = len(X.columns)
+    stats['target_variable'] = 'NO2'
+    
+    # Data cleaning summary
+    stats['data_cleaning'] = {
+        'negative_values_removed': True,  # Since we now handle this in preprocessing
+        'missing_values_handled': True,
+        'final_sample_count': len(X)
+    }
+    
+    # Target variable (NO2) statistics
+    stats['target_stats'] = {
+        'mean': float(y.mean()),
+        'median': float(y.median()),
+        'std': float(y.std()),
+        'min': float(y.min()),
+        'max': float(y.max()),
+        'q25': float(y.quantile(0.25)),
+        'q75': float(y.quantile(0.75)),
+        'skewness': float(y.skew()),
+        'kurtosis': float(y.kurtosis())
+    }
+    
+    # Feature statistics
+    feature_stats = {}
+    for col in X.columns:
+        if X[col].dtype in ['int64', 'float64']:
+            feature_stats[col] = {
+                'mean': float(X[col].mean()),
+                'median': float(X[col].median()),
+                'std': float(X[col].std()),
+                'min': float(X[col].min()),
+                'max': float(X[col].max()),
+                'missing_values': int(X[col].isna().sum()),
+                'missing_percentage': float(X[col].isna().sum() / len(X) * 100)
+            }
+        else:
+            feature_stats[col] = {
+                'unique_values': int(X[col].nunique()),
+                'most_common': str(X[col].mode().iloc[0]) if len(X[col].mode()) > 0 else 'N/A',
+                'missing_values': int(X[col].isna().sum()),
+                'missing_percentage': float(X[col].isna().sum() / len(X) * 100)
+            }
+    
+    stats['feature_stats'] = feature_stats
+    
+    # Temporal statistics (from viz_df)
+    if 'Date' in viz_df.columns:
+        viz_df['Date'] = pd.to_datetime(viz_df['Date'])
+        stats['temporal_stats'] = {
+            'date_range_start': str(viz_df['Date'].min()),
+            'date_range_end': str(viz_df['Date'].max()),
+            'total_days': int((viz_df['Date'].max() - viz_df['Date'].min()).days),
+            'unique_dates': int(viz_df['Date'].dt.date.nunique()),
+            'year_range': f"{viz_df['Date'].dt.year.min()} - {viz_df['Date'].dt.year.max()}"
+        }
+    
+    # Seasonal distribution
+    if 'Season' in viz_df.columns:
+        season_counts = viz_df['Season'].value_counts()
+        stats['seasonal_distribution'] = {
+            season: int(count) for season, count in season_counts.items()
+        }
+    
+    # Hourly distribution
+    if 'Hour' in viz_df.columns:
+        hour_stats = viz_df['Hour'].value_counts().sort_index()
+        stats['hourly_distribution'] = {
+            f"Hour_{hour}": int(count) for hour, count in hour_stats.items()
+        }
+    
+    # Missing values summary
+    missing_summary = {}
+    for col in X.columns:
+        missing_count = X[col].isna().sum()
+        if missing_count > 0:
+            missing_summary[col] = {
+                'missing_count': int(missing_count),
+                'missing_percentage': float(missing_count / len(X) * 100)
+            }
+    
+    stats['missing_values_summary'] = missing_summary
+    
+    # Data quality indicators
+    stats['data_quality'] = {
+        'completeness': float((1 - X.isna().sum().sum() / (len(X) * len(X.columns))) * 100),
+        'duplicate_rows': int(viz_df.duplicated().sum()),
+        'duplicate_percentage': float(viz_df.duplicated().sum() / len(viz_df) * 100),
+        'negative_no2_removed': True,  # Since we now handle this
+        'data_cleaning_applied': True
+    }
+    
+    # Add total number of observations and columns
+    stats['total_observations'] = len(X)
+    stats['total_columns'] = len(X.columns) + 1  # features + target
+    
+    # Print comprehensive statistics
+    print(f"\n📊 DATASET OVERVIEW:")
+    print(f"   Total samples: {stats['total_samples']:,}")
+    print(f"   Total features: {stats['total_features']}")
+    print(f"   Target variable: {stats['target_variable']}")
+    
+    print(f"\n🧹 DATA CLEANING SUMMARY:")
+    print(f"   ✅ Negative NO2 values removed")
+    print(f"   ✅ Missing values handled")
+    print(f"   ✅ Final clean dataset: {stats['total_samples']:,} samples")
+    
+    print(f"\n🎯 TARGET VARIABLE (NO2) STATISTICS:")
+    target = stats['target_stats']
+    print(f"   Mean: {target['mean']:.2f} µg/m³")
+    print(f"   Median: {target['median']:.2f} µg/m³")
+    print(f"   Standard Deviation: {target['std']:.2f} µg/m³")
+    print(f"   Range: {target['min']:.2f} - {target['max']:.2f} µg/m³")
+    print(f"   Q25: {target['q25']:.2f} µg/m³")
+    print(f"   Q75: {target['q75']:.2f} µg/m³")
+    print(f"   Skewness: {target['skewness']:.3f}")
+    print(f"   Kurtosis: {target['kurtosis']:.3f}")
+    
+    print(f"\n📈 FEATURE STATISTICS:")
+    for feature, feature_stat in stats['feature_stats'].items():
+        print(f"   {feature}:")
+        if 'mean' in feature_stat:  # Numeric feature
+            print(f"     Mean: {feature_stat['mean']:.2f}")
+            print(f"     Std: {feature_stat['std']:.2f}")
+            print(f"     Range: {feature_stat['min']:.2f} - {feature_stat['max']:.2f}")
+        else:  # Categorical feature
+            print(f"     Unique values: {feature_stat['unique_values']}")
+            print(f"     Most common: {feature_stat['most_common']}")
+        
+        if feature_stat['missing_values'] > 0:
+            print(f"     Missing: {feature_stat['missing_values']} ({feature_stat['missing_percentage']:.1f}%)")
+    
+    if 'temporal_stats' in stats:
+        print(f"\n⏰ TEMPORAL STATISTICS:")
+        temp = stats['temporal_stats']
+        print(f"   Date range: {temp['date_range_start']} to {temp['date_range_end']}")
+        print(f"   Total days: {temp['total_days']}")
+        print(f"   Unique dates: {temp['unique_dates']}")
+        print(f"   Year range: {temp['year_range']}")
+    
+    if 'seasonal_distribution' in stats:
+        print(f"\n🌍 SEASONAL DISTRIBUTION:")
+        for season, count in stats['seasonal_distribution'].items():
+            percentage = (count / stats['total_samples']) * 100
+            print(f"   {season}: {count:,} samples ({percentage:.1f}%)")
+    
+    if 'hourly_distribution' in stats:
+        print(f"\n🕐 HOURLY DISTRIBUTION (Sample):")
+        hour_items = list(stats['hourly_distribution'].items())[:6]  # Show first 6 hours
+        for hour, count in hour_items:
+            percentage = (count / stats['total_samples']) * 100
+            print(f"   {hour}: {count:,} samples ({percentage:.1f}%)")
+        print(f"   ... (showing 6 of 24 hours)")
+    
+    if stats['missing_values_summary']:
+        print(f"\n⚠️ MISSING VALUES SUMMARY:")
+        for col, missing_info in stats['missing_values_summary'].items():
+            print(f"   {col}: {missing_info['missing_count']} ({missing_info['missing_percentage']:.1f}%)")
+    else:
+        print(f"\n✅ NO MISSING VALUES DETECTED")
+    
+    print(f"\n🔍 DATA QUALITY INDICATORS:")
+    quality = stats['data_quality']
+    print(f"   Completeness: {quality['completeness']:.1f}%")
+    print(f"   Duplicate rows: {quality['duplicate_rows']} ({quality['duplicate_percentage']:.1f}%)")
+    print(f"   Data cleaning applied: ✅")
+    
+    # Save statistics to file
+    stats_file = os.path.join(MODELS_DIR, 'dataset_statistics_after_preprocessing.json')
+    import json
+    with open(stats_file, 'w') as f:
+        json.dump(stats, f, indent=2, default=str)
+    
+    print(f"\n💾 Statistics saved to: {stats_file}")
+    
+    return stats
+
+def generate_deep_learning_table(results_df):
+    """Generate a separate table for deep learning model results"""
+    print("\nGenerating Deep Learning Models Table...")
+    
+    # Filter deep learning models
+    dl_models = results_df[results_df['Model'].str.contains('Keras|Torch|LSTM|DNN', case=False, na=False)]
+    
+    if len(dl_models) > 0:
+        dl_table_data = []
+        for idx, row in dl_models.iterrows():
+            dl_table_data.append({
+                'Model_Name': row['Model'],
+                'Model_Type': 'Keras DNN' if 'DNN' in row['Model'] else 
+                             'Keras LSTM' if 'LSTM' in row['Model'] else 
+                             'PyTorch MLP' if 'Torch' in row['Model'] else 'Deep Learning',
+                'Training_R2': round(row['train_r2'], 4),
+                'Testing_R2': round(row['test_r2'], 4),
+                'Training_RMSE': round(row['train_rmse'], 4),
+                'Testing_RMSE': round(row['test_rmse'], 4),
+                'Training_MAE': round(row['train_mae'], 4),
+                'Testing_MAE': round(row['test_mae'], 4),
+                'Training_MAPE': round(row['train_mape'], 2),
+                'Testing_MAPE': round(row['test_mape'], 2),
+                'Architecture': 'Dense Neural Network' if 'DNN' in row['Model'] else 
+                               'Long Short-Term Memory' if 'LSTM' in row['Model'] else 
+                               'Multi-Layer Perceptron' if 'Torch' in row['Model'] else 'Neural Network',
+                'Framework': 'Keras/TensorFlow' if 'Keras' in row['Model'] else 'PyTorch'
+            })
+        
+        dl_table_df = pd.DataFrame(dl_table_data)
+        dl_table_path = f'{TABLES_DIR}/Table8_Deep_Learning_Models_Performance.csv'
+        dl_table_df.to_csv(dl_table_path, index=False)
+        print(f"✓ Deep Learning Table saved: {dl_table_path}")
+        
+        return dl_table_df
+    else:
+        print("No deep learning models found in results.")
+        return None
+
+def comprehensive_model_selection(results_df, trained_models, model_predictions, ts_results, viz_df, feature_names, y_test):
+    """Comprehensive model selection including ML, TS, and DL models"""
+    print("\n" + "="*60)
+    print("COMPREHENSIVE MODEL SELECTION")
+    print("="*60)
+    
+    while True:
+        print(f"\nDo you want to see visualizations for any model?")
+        choice = input("Enter 'yes' to continue or 'no' to exit: ").lower().strip()
+        
+        if choice in ['no', 'n', 'exit', 'quit']:
+            print("Exiting comprehensive model selection.")
+            break
+        elif choice in ['yes', 'y']:
+            # Create comprehensive model list
+            all_models = []
+            
+            # Add Machine Learning models
+            print(f"\n🤖 MACHINE LEARNING MODELS:")
+            print("-" * 50)
+            for idx, (_, row) in enumerate(results_df.iterrows(), 1):
+                model_type = "Deep Learning" if any(x in row['Model'] for x in ['Keras', 'Torch', 'LSTM', 'DNN']) else "Traditional ML"
+                print(f"{idx:2d}. {row['Model']} ({model_type}) - R² = {row['test_r2']:.4f}")
+                all_models.append({
+                    'index': idx,
+                    'name': row['Model'],
+                    'type': 'ML',
+                    'r2': row['test_r2'],
+                    'model': trained_models.get(row['Model']),
+                    'predictions': model_predictions.get(row['Model'])
+                })
+            
+            # Add Time Series models
+            if ts_results:
+                print(f"\n⏰ TIME SERIES MODELS:")
+                print("-" * 50)
+                ts_start_idx = len(all_models) + 1
+                for idx, (model_name, result) in enumerate(ts_results.items(), ts_start_idx):
+                    print(f"{idx:2d}. {model_name} (Time Series) - MAE = {result['test_mae']:.4f}")
+                    all_models.append({
+                        'index': idx,
+                        'name': model_name,
+                        'type': 'TS',
+                        'r2': result.get('test_r2', 0),
+                        'mae': result.get('test_mae', 0),
+                        'model': result.get('model'),
+                        'predictions': result.get('test_predictions')
+                    })
+            
+            # Get user selection
+            try:
+                model_choice = int(input(f"\nEnter the number (1-{len(all_models)}) of the model you want to visualize: "))
+                
+                if 1 <= model_choice <= len(all_models):
+                    selected_model_info = all_models[model_choice - 1]
+                    selected_model_name = selected_model_info['name']
+                    selected_model_type = selected_model_info['type']
+                    
+                    print(f"\n🎨 Generating visualizations for: {selected_model_name} ({selected_model_type})")
+                    
+                    if selected_model_type == 'ML':
+                        # Handle ML models (including deep learning)
+                        if selected_model_info['model'] is not None:
+                            model = selected_model_info['model']
+                            predictions = selected_model_info['predictions']
+                            
+                            # Create custom output directory
+                            custom_output_dir = f"visualization_results/{selected_model_name.lower().replace(' ', '_')}"
+                            
+                            # Get metrics from results_df
+                            model_row = results_df[results_df['Model'] == selected_model_name]
+                            if not model_row.empty:
+                                test_r2 = model_row.iloc[0]['test_r2']
+                                train_r2 = model_row.iloc[0]['train_r2']
+                                
+                                # Generate visualizations
+                                generate_visualizations_for_model(
+                                    viz_df, model, selected_model_name, feature_names,
+                                    y_test, predictions['test_pred'], test_r2, train_r2, custom_output_dir
+                                )
+                                
+                                print(f"✅ Visualizations completed for {selected_model_name}!")
+                            else:
+                                print(f"❌ Model metrics not found for {selected_model_name}")
+                        else:
+                            print(f"❌ Model {selected_model_name} not found in trained models.")
+                    
+                    elif selected_model_type == 'TS':
+                        # Handle Time Series models
+                        print(f"📊 Time Series model visualizations are available in: {TS_FIGURES_DIR}/")
+                        print(f"   • Comprehensive time series analysis: comprehensive_time_series_analysis.png")
+                        print(f"   • Forecast visualization: forecast_visualization.png")
+                        print(f"   • Model performance details in: {TABLES_DIR}/Table6_Time_Series_Performance.csv")
+                    
                 else:
                     print("❌ Invalid selection. Please choose a number from the list.")
                     
@@ -2454,6 +3353,9 @@ def main():
         
         # Load and preprocess data for ML
         X, y, viz_df = load_and_preprocess_data()
+        
+        # Generate dataset statistics
+        stats = generate_dataset_statistics(X, y, viz_df)
         
         # Split data for ML
         print(f"\nSplitting data (80% train, 20% test)...")
@@ -2485,6 +3387,9 @@ def main():
         print("TRAINING ALL MACHINE LEARNING MODELS")
         print("="*50)
         results_df, trained_models, model_predictions = train_all_models(X_train_scaled, X_test_scaled, y_train, y_test)
+        
+        # Generate deep learning table
+        dl_table_df = generate_deep_learning_table(results_df)
         
         # Show ML summary
         print("\n" + "="*50)
@@ -2587,12 +3492,16 @@ def main():
         )
         
         print("\n" + "="*60)
-        print("PART 6: INTERACTIVE MODEL SELECTION")
+        print("PART 6: COMPREHENSIVE MODEL SELECTION")
         print("="*60)
         
-        # Interactive model selection for ML visualizations
-        print("\nMachine Learning Model Visualization Options:")
-        interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test)
+        # Comprehensive model selection including ML, TS, and DL models
+        print("\nComprehensive Model Selection (ML, Time Series, and Deep Learning):")
+        comprehensive_model_selection(results_df, trained_models, model_predictions, ts_results, viz_df, feature_names, y_test)
+        
+        # Interactive model selection for custom visualizations
+        print("\nInteractive Model Selection for Custom Visualizations:")
+        interactive_model_selection(results_df, trained_models, model_predictions, viz_df, feature_names, y_test, ts_results)
         
         # Save comprehensive results summary
         comprehensive_summary = f"""COMPREHENSIVE AIR POLLUTION ANALYSIS RESULTS
@@ -2679,7 +3588,7 @@ Generated Files:
         print(f"📊 {len(trained_models)} ML models + {len(ts_results)} TS models trained")
         
         print(f"\n📋 Generated Files Summary:")
-        print(f"   • Table1-7: All experimental results and forecasts")
+        print(f"   • Table1-8: All experimental results, forecasts, and deep learning")
         print(f"   • Comprehensive pattern analysis")
         print(f"   • Professional dashboard")
         print(f"   • 1-year forecast with visualizations")
@@ -2693,6 +3602,27 @@ Generated Files:
         print(f"❌ Error during analysis: {e}")
         import traceback
         traceback.print_exc()
+
+# Utility: Test deep learning model input shapes
+
+def test_deep_model_shapes(input_dim):
+    import numpy as np
+    X = np.random.randn(10, input_dim)
+    y = np.random.randn(10)
+    wrappers = [
+        ('Keras_LSTM', KerasLSTMWrapper(input_dim=input_dim, epochs=1, batch_size=2, verbose=0)),
+        ('Keras_GRU', KerasGRUWrapper(input_dim=input_dim, epochs=1, batch_size=2, verbose=0)),
+        ('Keras_BiLSTM', KerasBiLSTMWrapper(input_dim=input_dim, epochs=1, batch_size=2, verbose=0)),
+        ('Keras_Conv1D', KerasConv1DWrapper(input_dim=input_dim, epochs=1, batch_size=2, verbose=0)),
+        ('Keras_Attention_LSTM', KerasAttentionLSTMWrapper(input_dim=input_dim, epochs=1, batch_size=2, verbose=0)),
+    ]
+    for name, model in wrappers:
+        try:
+            model.fit(X, y)
+            preds = model.predict(X)
+            print(f"✅ {name} input shape test passed. Pred shape: {preds.shape}")
+        except Exception as e:
+            print(f"❌ {name} input shape test failed: {e}")
 
 if __name__ == "__main__":
     results = main() 
